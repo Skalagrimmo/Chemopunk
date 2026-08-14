@@ -1,0 +1,6 @@
+{
+  "name": "Chemopunk RPG",
+  "description": "Fallout 1 & 2 style 2.5D isometric ASCII RPG with Room database inventory, dynamic lighting, CRT scanlines, and tactical V.A.T.S. targeting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
