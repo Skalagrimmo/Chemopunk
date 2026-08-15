@@ -1,6 +1,8 @@
 package com.example.data
 
 import android.content.Context
+import com.example.data.narrative.MarkdownNarrativeParser
+import com.example.data.narrative.NarrativeScriptDocument
 import java.io.InputStream
 
 sealed class GameEvent {
@@ -21,7 +23,8 @@ class MarkdownParser(private val context: Context? = null) {
         val mapGrid: List<List<TileType>>,
         val storyNodes: Map<String, StoryNode>,
         val rawMarkdownText: String,
-        val events: List<GameEvent> = emptyList()
+        val events: List<GameEvent> = emptyList(),
+        val document: NarrativeScriptDocument? = null
     )
 
     fun parseScriptFromAssets(fileName: String = "chemopank_world.md"): List<GameEvent> {
@@ -51,269 +54,45 @@ class MarkdownParser(private val context: Context? = null) {
             } catch (e: Exception) {
                 getFallbackMarkdown()
             }
-            return parseString(markdownContent)
+            return parseString(markdownContent, assetFileName = fileName)
         }
 
-        fun parseString(markdownText: String): ParsedWorldData {
+        fun parseString(markdownText: String, assetFileName: String = "chemopank_world.md"): ParsedWorldData {
+            val doc = MarkdownNarrativeParser.parseNarrativeDocument(markdownText, assetFileName = assetFileName)
+
             val eventsList = mutableListOf<GameEvent>()
-            val lines = markdownText.lines()
+            eventsList.add(GameEvent.ConfigLoaded(doc.config))
+            doc.items.values.forEach { eventsList.add(GameEvent.ItemDefined(it)) }
+            doc.enemies.forEach { eventsList.add(GameEvent.EnemyDefined(it)) }
+            doc.storyNodes.values.forEach { eventsList.add(GameEvent.StoryNodeLoaded(it)) }
 
-            var config = GameConfig()
-            val items = mutableMapOf<String, Item>()
-            val enemies = mutableListOf<Enemy>()
-            val mapLines = mutableListOf<String>()
-            val storyNodes = mutableMapOf<String, StoryNode>()
-
-            var currentSection = ""
-            var currentEntityHeader = ""
-            val currentEntityProps = mutableMapOf<String, String>()
-
-            var currentStoryId = ""
-            var currentStoryTitle = ""
-            var currentStoryContent = StringBuilder()
-            val currentStoryChoices = mutableListOf<Choice>()
-
-            fun finalizeItem() {
-                if (currentEntityHeader.isNotBlank()) {
-                    val id = currentEntityHeader.lowercase().replace(" ", "_")
-                    val name = currentEntityProps["name"] ?: currentEntityHeader
-                    val typeStr = currentEntityProps["type"] ?: "CONSUMABLE"
-                    val type = try { ItemType.valueOf(typeStr.uppercase()) } catch (_: Exception) { ItemType.CONSUMABLE }
-                    val valInt = currentEntityProps["value"]?.toIntOrNull() ?: 0
-                    val desc = currentEntityProps["description"] ?: ""
-
-                    val item = when (type) {
-                        ItemType.CONSUMABLE -> {
-                            val effect = currentEntityProps["effect"] ?: ""
-                            var heal = 0
-                            var reduceTox = 0
-                            if (effect.contains("Heal", ignoreCase = true)) {
-                                val match = Regex("""Heal\s+(\d+)""", RegexOption.IGNORE_CASE).find(effect)
-                                heal = match?.groupValues?.get(1)?.toIntOrNull() ?: 20
-                            }
-                            if (effect.contains("Toxicity", ignoreCase = true)) {
-                                val match = Regex("""Reduce Toxicity by\s+(\d+)""", RegexOption.IGNORE_CASE).find(effect)
-                                reduceTox = match?.groupValues?.get(1)?.toIntOrNull() ?: 30
-                            }
-                            Item(id, name, type, valInt, healHp = heal, reduceToxicity = reduceTox, description = desc)
-                        }
-                        ItemType.WEAPON -> {
-                            val dmg = currentEntityProps["damage"]?.toIntOrNull() ?: 15
-                            Item(id, name, type, valInt, damage = dmg, description = desc)
-                        }
-                        ItemType.ARMOR -> {
-                            val def = currentEntityProps["defense"]?.toIntOrNull() ?: 5
-                            Item(id, name, type, valInt, defense = def, description = desc)
-                        }
-                        else -> Item(id, name, type, valInt, description = desc)
-                    }
-                    items[id] = item
-                    eventsList.add(GameEvent.ItemDefined(item))
-                }
-                currentEntityHeader = ""
-                currentEntityProps.clear()
-            }
-
-            fun finalizeEnemy() {
-                if (currentEntityHeader.isNotBlank()) {
-                    val id = currentEntityHeader.lowercase().replace(" ", "_")
-                    val name = currentEntityProps["name"] ?: currentEntityHeader
-                    val hp = currentEntityProps["hp"]?.toIntOrNull() ?: 40
-                    val atk = currentEntityProps["attack"]?.toIntOrNull() ?: 10
-                    val arm = currentEntityProps["armor"]?.toIntOrNull() ?: 2
-                    val toxDmg = currentEntityProps["toxicitydamage"]?.toIntOrNull() ?: 5
-                    val glyph = currentEntityProps["ascii_glyph"]?.getOrNull(0) ?: 'E'
-                    val exp = currentEntityProps["expreward"]?.toIntOrNull() ?: 20
-                    val loot = currentEntityProps["loot"]
-
-                    val enemy = Enemy(
-                        id = id,
-                        name = name,
-                        hp = hp,
-                        maxHp = hp,
-                        attack = atk,
-                        armor = arm,
-                        toxicityDamage = toxDmg,
-                        asciiGlyph = glyph,
-                        expReward = exp,
-                        lootItemId = loot,
-                        x = 3.5f,
-                        y = 3.5f
-                    )
-                    enemies.add(enemy)
-                    eventsList.add(GameEvent.EnemyDefined(enemy))
-                }
-                currentEntityHeader = ""
-                currentEntityProps.clear()
-            }
-
-            fun finalizeStoryNode() {
-                if (currentStoryId.isNotBlank()) {
-                    val node = StoryNode(
-                        id = currentStoryId,
-                        title = currentStoryTitle,
-                        content = currentStoryContent.toString().trim(),
-                        choices = currentStoryChoices.toList()
-                    )
-                    storyNodes[currentStoryId] = node
-                    eventsList.add(GameEvent.StoryNodeLoaded(node))
-                }
-                currentStoryId = ""
-                currentStoryTitle = ""
-                currentStoryContent = StringBuilder()
-                currentStoryChoices.clear()
-            }
-
-            var inCodeBlock = false
-
-            for (line in lines) {
-                val trimmed = line.trim()
-
-                if (trimmed.startsWith("## GAME_CONFIG")) {
-                    currentSection = "CONFIG"
-                    continue
-                } else if (trimmed.startsWith("## ITEM_DATABASE")) {
-                    currentSection = "ITEMS"
-                    continue
-                } else if (trimmed.startsWith("## ENEMY_DATABASE")) {
-                    currentSection = "ENEMIES"
-                    continue
-                } else if (trimmed.startsWith("## MAP_LAYOUT")) {
-                    currentSection = "MAP"
-                    continue
-                } else if (trimmed.startsWith("## STORY_NODES")) {
-                    currentSection = "STORY"
-                    continue
-                }
-
-                when (currentSection) {
-                    "CONFIG" -> {
-                        if (trimmed.startsWith("- ")) {
-                            val parts = trimmed.substring(2).split(":", limit = 2)
-                            if (parts.size == 2) {
-                                val key = parts[0].trim()
-                                val value = parts[1].trim()
-                                when (key) {
-                                    "initial_floor" -> config = config.copy(initialFloor = value.toIntOrNull() ?: 1)
-                                    "max_toxicity" -> config = config.copy(maxToxicity = value.toIntOrNull() ?: 100)
-                                    "starting_hp" -> config = config.copy(startingHp = value.toIntOrNull() ?: 100)
-                                    "starting_credits" -> config = config.copy(startingCredits = value.toIntOrNull() ?: 50)
-                                    "starting_weapon" -> config = config.copy(startingWeapon = value)
-                                    "font_style" -> config = config.copy(fontStyle = value)
-                                }
-                            }
-                        }
-                    }
-
-                    "ITEMS" -> {
-                        if (trimmed.startsWith("### Item:")) {
-                            finalizeItem()
-                            currentEntityHeader = trimmed.substring("### Item:".length).trim()
-                        } else if (trimmed.startsWith("- ") && currentEntityHeader.isNotBlank()) {
-                            val parts = trimmed.substring(2).split(":", limit = 2)
-                            if (parts.size == 2) {
-                                currentEntityProps[parts[0].trim().lowercase()] = parts[1].trim()
-                            }
-                        }
-                    }
-
-                    "ENEMIES" -> {
-                        if (trimmed.startsWith("### Enemy:")) {
-                            finalizeEnemy()
-                            currentEntityHeader = trimmed.substring("### Enemy:".length).trim()
-                        } else if (trimmed.startsWith("- ") && currentEntityHeader.isNotBlank()) {
-                            val parts = trimmed.substring(2).split(":", limit = 2)
-                            if (parts.size == 2) {
-                                currentEntityProps[parts[0].trim().lowercase()] = parts[1].trim()
-                            }
-                        }
-                    }
-
-                    "MAP" -> {
-                        if (trimmed.startsWith("```")) {
-                            inCodeBlock = !inCodeBlock
-                            continue
-                        }
-                        if (inCodeBlock && trimmed.isNotEmpty()) {
-                            mapLines.add(trimmed)
-                        }
-                    }
-
-                    "STORY" -> {
-                        if (trimmed.startsWith("### Node:")) {
-                            finalizeStoryNode()
-                            currentStoryId = trimmed.substring("### Node:".length).trim()
-                        } else if (currentStoryId.isNotBlank()) {
-                            if (trimmed.startsWith("- Title:")) {
-                                currentStoryTitle = trimmed.substring("- Title:".length).trim()
-                            } else if (trimmed.startsWith("- Choice:")) {
-                                val choiceMatch = Regex("""\[(.*?)\]\(@(.*?)\)""").find(trimmed)
-                                if (choiceMatch != null) {
-                                    val text = choiceMatch.groupValues[1]
-                                    val target = choiceMatch.groupValues[2]
-                                    currentStoryChoices.add(Choice(text, target))
-                                }
-                            } else if (trimmed.startsWith("- Content:")) {
-                                currentStoryContent.append(trimmed.substring("- Content:".length).trim()).append("\n")
-                            } else if (trimmed.isNotBlank() && !trimmed.startsWith("#")) {
-                                currentStoryContent.append(trimmed).append("\n")
-                            }
-                        }
-                    }
-                }
-            }
-
-            finalizeItem()
-            finalizeEnemy()
-            finalizeStoryNode()
-
-            eventsList.add(GameEvent.ConfigLoaded(config))
-
-            // Build Map Grid from mapLines
-            val mapGrid = mutableListOf<MutableList<TileType>>()
-            if (mapLines.isEmpty()) {
+            // Ensure valid fallback map grid if empty
+            val grid = if (doc.mapGrid.isNotEmpty()) {
+                doc.mapGrid
+            } else {
+                val fallbackGrid = mutableListOf<MutableList<TileType>>()
                 for (r in 0 until 10) {
                     val row = mutableListOf<TileType>()
                     for (c in 0 until 10) {
                         if (r == 0 || r == 9 || c == 0 || c == 9) row.add(TileType.WALL) else row.add(TileType.FLOOR)
                     }
-                    mapGrid.add(row)
+                    fallbackGrid.add(row)
                 }
-            } else {
-                var enemyIndex = 0
-                mapLines.forEachIndexed { r, line ->
-                    val row = mutableListOf<TileType>()
-                    line.forEachIndexed { c, char ->
-                        when (char) {
-                            '#' -> row.add(TileType.WALL)
-                            'S', 'D', 'M' -> {
-                                row.add(TileType.FLOOR)
-                                if (enemyIndex < enemies.size) {
-                                    enemies[enemyIndex].x = c + 0.5f
-                                    enemies[enemyIndex].y = r + 0.5f
-                                    enemyIndex++
-                                }
-                            }
-                            '~' -> row.add(TileType.TOXIC_POOL)
-                            'E' -> row.add(TileType.EXTRACTION_LIFT)
-                            else -> row.add(TileType.FLOOR)
-                        }
-                    }
-                    mapGrid.add(row)
-                }
+                fallbackGrid
             }
 
-            eventsList.add(GameEvent.MapGridParsed(mapGrid))
-            eventsList.add(GameEvent.ScriptLog("Script parsed successfully: ${eventsList.size} game events generated."))
+            eventsList.add(GameEvent.MapGridParsed(grid))
+            eventsList.add(GameEvent.ScriptLog("Markdown narrative script parsed: ${doc.storyNodes.size} story nodes, ${doc.items.size} items."))
 
             return ParsedWorldData(
-                config = config,
-                items = items,
-                enemies = enemies,
-                mapGrid = mapGrid,
-                storyNodes = storyNodes,
+                config = doc.config,
+                items = doc.items,
+                enemies = doc.enemies,
+                mapGrid = grid,
+                storyNodes = doc.storyNodes,
                 rawMarkdownText = markdownText,
-                events = eventsList
+                events = eventsList,
+                document = doc
             )
         }
 
@@ -339,7 +118,7 @@ class MarkdownParser(private val context: Context? = null) {
 ### Item: plasma_scalpel
 - Name: Plasma Scalpel
 - Type: WEAPON
-- Damage: 18
+- Damage: 22
 - Description: High-energy blade for cutting armor.
 
 ## ENEMY_DATABASE

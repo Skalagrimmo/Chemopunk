@@ -226,9 +226,9 @@ class ProceduralAudioManager(
 
                         // Combine all procedural stems
                         val rawMix = (subSample + droneSample + humSample + dangerAlarm + isGeigerClick) * masterVolume
-                        val clampedMix = rawMix.coerceIn(-1.0f, 1.0f)
+                        val clampedMix = rawMix.coerceIn(-1.0, 1.0)
 
-                        pcmBuffer[i] = (clampedMix * 32767).toInt().toShort()
+                        pcmBuffer[i] = (clampedMix * 32767.0).toInt().toShort()
 
                         // Advance wave phases
                         phaseSub += subIncrement

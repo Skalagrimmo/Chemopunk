@@ -234,6 +234,16 @@ class InventoryRepository(
         return Pair(false, repairCost)
     }
 
+    suspend fun degradeEquippedWeapon(amount: Int = 1) {
+        val equippedWeapon = inventoryDao.getEquippedBySlot(EquipSlot.WEAPON.name) ?: return
+        inventoryDao.degradeDurability(equippedWeapon.itemId, amount)
+    }
+
+    suspend fun degradeEquippedArmor(amount: Int = 1) {
+        val equippedArmor = inventoryDao.getEquippedBySlot(EquipSlot.ARMOR.name) ?: return
+        inventoryDao.degradeDurability(equippedArmor.itemId, amount)
+    }
+
     suspend fun deleteItem(itemId: String) {
         inventoryDao.deleteItemById(itemId)
     }

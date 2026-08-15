@@ -45,6 +45,15 @@ data class InventoryItemEntity(
     val modSlots: Int = 1,
     val dateAcquired: Long = System.currentTimeMillis()
 ) {
+    val isBroken: Boolean
+        get() = durability <= 0
+
+    val durabilityPercent: Int
+        get() = if (maxDurability > 0) ((durability.toFloat() / maxDurability) * 100).toInt() else 100
+
+    val totalWeightKg: Float
+        get() = weightKg * quantity
+
     fun toDomainItem(): Item {
         val itemType = try {
             ItemType.valueOf(type)

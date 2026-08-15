@@ -106,14 +106,23 @@ data class Enemy(
 
 data class Choice(
     val text: String,
-    val targetNodeId: String
+    val targetNodeId: String,
+    val requiredItemId: String? = null,
+    val toxicityCost: Int = 0,
+    val hpReward: Int = 0,
+    val creditsReward: Int = 0,
+    val actionTrigger: String? = null
 )
 
 data class StoryNode(
     val id: String,
     val title: String,
     val content: String,
-    val choices: List<Choice> = emptyList()
+    val speaker: String? = null,
+    val category: String = "STORY",
+    val mood: String = "NORMAL",
+    val choices: List<Choice> = emptyList(),
+    val rawMarkdown: String = ""
 )
 
 data class GameConfig(
@@ -132,8 +141,54 @@ enum class ColorPalette {
     MONOCHROME_HIGH_CONTRAST
 }
 
+enum class LogCategory(val label: String, val badge: String) {
+    COMBAT("COMBAT", "⚔"),
+    HAZARD("HAZARD", "☣"),
+    NPC_AI("AI/NPC", "🎯"),
+    LOOT("INVENTORY", "📦"),
+    NARRATIVE("STORY", "📜"),
+    SYSTEM("SYSTEM", "⚡")
+}
+
 data class CombatLogEntry(
     val message: String,
     val isCritical: Boolean = false,
-    val timestamp: Long = System.currentTimeMillis()
-)
+    val timestamp: Long = System.currentTimeMillis(),
+    val category: LogCategory = categorizeMessage(message, isCritical),
+    val impactValue: String? = extractImpactValue(message),
+    val isInteractive: Boolean = true
+) {
+    companion object {
+        fun categorizeMessage(msg: String, critical: Boolean): LogCategory {
+            val lower = msg.lowercase()
+            return when {
+                lower.contains("strike") || lower.contains("hit") || lower.contains("crit") ||
+                lower.contains("damage") || lower.contains("attack") || lower.contains("defeated") ||
+                lower.contains("engaged") || lower.contains("counter-attack") || lower.contains("blocked") -> LogCategory.COMBAT
+
+                lower.contains("toxic") || lower.contains("sludge") || lower.contains("mutagen") ||
+                lower.contains("purge") || lower.contains("radiation") || lower.contains("hazard") ||
+                lower.contains("fatality") || lower.contains("bio-suit") -> LogCategory.HAZARD
+
+                lower.contains("patrol") || lower.contains("aggro") || lower.contains("flee") ||
+                lower.contains("spotted") || lower.contains("alert") || lower.contains("v.a.t.s.") ||
+                lower.contains("sensors") || lower.contains("target") || lower.contains("hostile") -> LogCategory.NPC_AI
+
+                lower.contains("item") || lower.contains("equip") || lower.contains("scrapped") ||
+                lower.contains("repair") || lower.contains("craft") || lower.contains("loot") ||
+                lower.contains("credits") || lower.contains("inventory") || lower.contains("durability") -> LogCategory.LOOT
+
+                lower.contains("script") || lower.contains("narrative") || lower.contains("audio log") ||
+                lower.contains("terminal") || lower.contains("document") || lower.contains("archive") ||
+                lower.contains("lore") || lower.contains("node") -> LogCategory.NARRATIVE
+
+                else -> if (critical) LogCategory.COMBAT else LogCategory.SYSTEM
+            }
+        }
+
+        fun extractImpactValue(msg: String): String? {
+            val regex = Regex("([+-]?\\d+\\s*(?:HP|DMG|TOX|%|EXP|Credits))", RegexOption.IGNORE_CASE)
+            return regex.find(msg)?.value?.trim()
+        }
+    }
+}

@@ -22,5 +22,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onPause() {
+        super.onPause()
+        gameViewModel.proceduralAudioManager.setMuted(true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!gameViewModel.proceduralAudioManager.audioProfile.value.isMuted) {
+            gameViewModel.proceduralAudioManager.setMuted(false)
+        }
+    }
 }
 

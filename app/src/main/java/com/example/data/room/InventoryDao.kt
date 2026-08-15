@@ -64,6 +64,18 @@ interface InventoryDao {
 
     @Query("SELECT COUNT(*) FROM inventory_items")
     suspend fun getItemCount(): Int
+
+    @Query("SELECT SUM(weightKg * quantity) FROM inventory_items")
+    fun getTotalInventoryWeight(): Flow<Float?>
+
+    @Query("SELECT * FROM inventory_items WHERE durability < maxDurability ORDER BY durability ASC")
+    fun getDamagedItems(): Flow<List<InventoryItemEntity>>
+
+    @Query("UPDATE inventory_items SET durability = CASE WHEN durability - :amount < 0 THEN 0 ELSE durability - :amount END WHERE itemId = :itemId")
+    suspend fun degradeDurability(itemId: String, amount: Int)
+
+    @Query("UPDATE inventory_items SET durability = maxDurability WHERE itemId = :itemId")
+    suspend fun repairFully(itemId: String)
 }
 
 @Dao

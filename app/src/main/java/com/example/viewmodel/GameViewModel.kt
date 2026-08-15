@@ -26,6 +26,9 @@ import com.example.engine.LightSource
 import com.example.engine.LightType
 import com.example.engine.NpcStateMachineEngine
 import com.example.engine.ProceduralAudioManager
+import com.example.data.narrative.MarkdownNarrativeParser
+import com.example.data.narrative.NarrativeScriptDocument
+import com.example.data.narrative.StoryAssetDescriptor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +40,9 @@ import kotlin.math.sin
 data class GameUiState(
     val player: Player = Player(),
     val currentStoryNode: StoryNode? = null,
+    val currentStoryDocument: NarrativeScriptDocument? = null,
+    val currentStoryAssetFileName: String = "chemopank_world.md",
+    val availableStoryAssets: List<StoryAssetDescriptor> = MarkdownNarrativeParser.AVAILABLE_STORY_ASSETS,
     val inventory: List<Item> = emptyList(),
     val roomInventory: List<InventoryItemEntity> = emptyList(),
     val gearStats: GearCombatStats = GearCombatStats(),
@@ -257,6 +263,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     player = player,
                     currentStoryNode = startingNode,
+                    currentStoryDocument = data.document,
+                    currentStoryAssetFileName = "chemopank_world.md",
                     inventory = startingInventory,
                     activeEnemies = initializeNpcStateMachines(data.enemies, data.mapGrid),
                     mapGrid = data.mapGrid,
@@ -360,12 +368,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val targetX = p.x + dx
         val targetY = p.y + dy
 
-        // Calculate angle based on dx/dy
+        // Calculate angle based on dx/dy (8-way directions)
         val angle = when {
-            dx == 0 && dy < 0 -> 0f   // North
-            dx > 0 && dy == 0 -> 90f  // East
-            dx == 0 && dy > 0 -> 180f // South
-            dx < 0 && dy == 0 -> 270f // West
+            dx == 0 && dy < 0 -> 0f     // North
+            dx > 0 && dy < 0 -> 45f    // North-East
+            dx > 0 && dy == 0 -> 90f   // East
+            dx > 0 && dy > 0 -> 135f   // South-East
+            dx == 0 && dy > 0 -> 180f  // South
+            dx < 0 && dy > 0 -> 225f   // South-West
+            dx < 0 && dy == 0 -> 270f  // West
+            dx < 0 && dy < 0 -> 315f   // North-West
             else -> p.angleDegrees
         }
 
@@ -421,30 +433,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 selectedTile = Pair(gridX, gridY),
                 combatLogs = it.combatLogs + CombatLogEntry("Inspecting: $tile at [X:$gridX, Y:$gridY]")
             )
-        }
-    }
-
-    fun reloadFromMarkdownString(newMarkdownText: String) {
-        viewModelScope.launch {
-            try {
-                val data = parser.parseWorld(newMarkdownText)
-                parsedData = data
-                val startingNode = data.storyNodes["start"] ?: data.storyNodes.values.firstOrNull()
-
-                _uiState.update {
-                    it.copy(
-                        currentStoryNode = startingNode,
-                        activeEnemies = initializeNpcStateMachines(data.enemies, data.mapGrid),
-                        mapGrid = data.mapGrid,
-                        rawMarkdownContent = newMarkdownText,
-                        combatLogs = it.combatLogs + CombatLogEntry("Markdown script re-parsed: ${data.events.size} events generated!")
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(combatLogs = it.combatLogs + CombatLogEntry("Error parsing Markdown: ${e.message}", isCritical = true))
-                }
-            }
         }
     }
 
@@ -623,6 +611,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         logs.add(CombatLogEntry(hitMsg, isCritical = isCrit))
         spawnFloatingText(if (isCrit) "-$totalDmg CRIT!" else "-$totalDmg", enemy.x, enemy.y, 0xFFFF4150)
 
+        // Weapon durability degradation on strike
+        viewModelScope.launch {
+            inventoryRepository.degradeEquippedWeapon(1)
+        }
+
         if (newEnemyHp == 0) {
             enemy.isAlive = false
             logs.add(CombatLogEntry("Defeated ${enemy.name}! +${enemy.expReward} EXP!"))
@@ -679,6 +672,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val newTox = (player.toxicity + enemy.toxicityDamage).coerceAtMost(100)
 
             logs.add(CombatLogEntry("${enemy.name} counter-attacked for $enemyDmg damage (Armor blocked ${totalDef} DMG)!"))
+
+            // Armor durability degradation on impact
+            viewModelScope.launch {
+                inventoryRepository.degradeEquippedArmor(1)
+            }
 
             if (newPlayerHp == 0 || newTox >= 100) {
                 _uiState.update { it.copy(isGameOver = true) }
@@ -818,14 +816,89 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadStoryScript(assetFileName: String) {
+        viewModelScope.launch {
+            val doc = MarkdownNarrativeParser.loadFromAssets(
+                context = getApplication(),
+                fileName = assetFileName,
+                variableResolver = { varName ->
+                    val p = _uiState.value.player
+                    when (varName.uppercase()) {
+                        "PLAYER_NAME" -> p.name
+                        "HP" -> p.hp.toString()
+                        "MAX_HP" -> p.maxHp.toString()
+                        "TOXICITY" -> p.toxicity.toString()
+                        "CREDITS" -> p.credits.toString()
+                        else -> varName
+                    }
+                }
+            )
+
+            val firstNode = doc.storyNodes.values.firstOrNull()
+            _uiState.update {
+                it.copy(
+                    currentStoryDocument = doc,
+                    currentStoryAssetFileName = assetFileName,
+                    currentStoryNode = firstNode,
+                    rawMarkdownContent = doc.rawText,
+                    combatLogs = it.combatLogs + CombatLogEntry("Loaded Narrative Script: ${doc.title} ($assetFileName)")
+                )
+            }
+        }
+    }
+
+    fun selectStoryNode(nodeId: String) {
+        val currentDoc = _uiState.value.currentStoryDocument
+        val targetNode = currentDoc?.storyNodes?.get(nodeId)
+            ?: parsedData?.storyNodes?.get(nodeId)
+        if (targetNode != null) {
+            _uiState.update {
+                it.copy(
+                    currentStoryNode = targetNode,
+                    currentViewMode = ViewMode.STORY_DIALOGUE
+                )
+            }
+        }
+    }
+
     fun selectStoryChoice(choiceTarget: String) {
         if (choiceTarget == "action_gameview") {
             _uiState.update { it.copy(currentViewMode = ViewMode.ISOMETRIC_WORLD) }
             return
         }
 
-        val node = parsedData?.storyNodes?.get(choiceTarget)
+        // Check if choice target corresponds to an action trigger
+        when (choiceTarget) {
+            "action_purge" -> {
+                val p = _uiState.value.player
+                val newTox = (p.toxicity - 15).coerceAtLeast(0)
+                _uiState.update {
+                    it.copy(
+                        player = p.copy(toxicity = newTox),
+                        combatLogs = it.combatLogs + CombatLogEntry("Executed emergency purge protocol (-15% Toxicity).")
+                    )
+                }
+                spawnFloatingText("-15% TOXICITY", p.x, p.y, 0xFF22C55E)
+            }
+            "action_heal" -> {
+                val p = _uiState.value.player
+                val newHp = (p.hp + 25).coerceAtMost(p.maxHp)
+                _uiState.update {
+                    it.copy(
+                        player = p.copy(hp = newHp),
+                        combatLogs = it.combatLogs + CombatLogEntry("Administered field medical stimulus (+25 HP).")
+                    )
+                }
+                spawnFloatingText("+25 HP", p.x, p.y, 0xFF4FD1C5)
+            }
+        }
+
+        val currentDoc = _uiState.value.currentStoryDocument
+        val node = currentDoc?.storyNodes?.get(choiceTarget)
+            ?: parsedData?.storyNodes?.get(choiceTarget)
+
         if (node != null) {
+            // Apply choice side-effects if node has matching choice
             _uiState.update {
                 it.copy(
                     currentStoryNode = node,
@@ -834,6 +907,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else {
             _uiState.update { it.copy(currentViewMode = ViewMode.ISOMETRIC_WORLD) }
+        }
+    }
+
+    fun reloadFromMarkdownString(newMarkdown: String) {
+        viewModelScope.launch {
+            val fileName = _uiState.value.currentStoryAssetFileName
+            val parsedWorld = MarkdownParser.parseString(newMarkdown, assetFileName = fileName)
+            parsedData = parsedWorld
+
+            val firstNode = parsedWorld.storyNodes.values.firstOrNull()
+
+            _uiState.update {
+                it.copy(
+                    currentStoryDocument = parsedWorld.document,
+                    currentStoryNode = firstNode ?: it.currentStoryNode,
+                    rawMarkdownContent = newMarkdown,
+                    mapGrid = if (parsedWorld.mapGrid.isNotEmpty()) parsedWorld.mapGrid else it.mapGrid,
+                    combatLogs = it.combatLogs + CombatLogEntry("Reloaded live Markdown script (${parsedWorld.storyNodes.size} story nodes parsed).")
+                )
+            }
+            spawnFloatingText("SCRIPT RELOADED", _uiState.value.player.x, _uiState.value.player.y, 0xFF4FD1C5)
         }
     }
 
@@ -899,7 +993,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePalette() {
-        _uiState.update { it.copy(colorPaletteIndex = (it.colorPaletteIndex + 1) % 4) }
+        val nextIdx = (_uiState.value.colorPaletteIndex + 1) % 7
+        val modeName = when (nextIdx) {
+            1 -> "ANSI-256 Colorizer (8-bit Indexed)"
+            2 -> "ANSI-16 Colorizer (4-bit CGA/EGA)"
+            3 -> "P1 Phosphor Green (CRT Gamma)"
+            4 -> "P20 Amber Industrial Terminal"
+            5 -> "Synthwave Neon Cyan (16-bit)"
+            6 -> "Matrix Digital Rain (High-Contrast)"
+            else -> "TrueColor HDR (24-bit RGB Filmic)"
+        }
+        _uiState.update {
+            it.copy(
+                colorPaletteIndex = nextIdx,
+                combatLogs = it.combatLogs + CombatLogEntry("Switched Colorizer: $modeName")
+            )
+        }
+        spawnFloatingText(modeName, _uiState.value.player.x, _uiState.value.player.y, 0xFF4FD1C5)
     }
 
     fun setViewMode(mode: ViewMode) {

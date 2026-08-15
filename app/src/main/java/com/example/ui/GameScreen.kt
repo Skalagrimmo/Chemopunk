@@ -34,8 +34,10 @@ import com.example.ui.components.AsciiIsometricView
 import com.example.ui.components.CombatModal
 import com.example.ui.components.ControlDPad
 import com.example.ui.components.HudOverlay
+import com.example.ui.components.InteractiveLogStream
 import com.example.ui.components.InventoryModal
 import com.example.ui.components.MarkdownEditorModal
+import com.example.ui.components.StoryDialogueScreen
 import com.example.ui.components.StoryModal
 import com.example.ui.theme.ImmersiveBackground
 import com.example.ui.theme.ImmersiveSurface
@@ -101,41 +103,24 @@ fun GameScreen(viewModel: GameViewModel) {
                     )
                 }
 
-                // Terminal System Log Console
-                val logListState = rememberLazyListState()
-                LaunchedEffect(uiState.combatLogs.size) {
-                    if (uiState.combatLogs.isNotEmpty()) {
-                        logListState.animateScrollToItem(uiState.combatLogs.size - 1)
-                    }
-                }
+                // Interactive Tactical Telemetry Log Stream (Categorized, Animated, Icon-driven)
+                InteractiveLogStream(
+                    logs = uiState.combatLogs,
+                    onOpenInventory = { viewModel.openModal(ActiveModal.INVENTORY) },
+                    onOpenStory = { viewModel.setViewMode(ViewMode.STORY_DIALOGUE) },
+                    modifier = Modifier.padding(bottom = 2.dp)
+                )
 
-                LazyColumn(
-                    state = logListState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(76.dp)
-                        .padding(horizontal = 8.dp)
-                        .background(ImmersiveSurface, RoundedCornerShape(12.dp))
-                        .border(1.dp, ImmersiveSurfaceVariant, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                        .testTag("terminal_console_log")
-                ) {
-                    items(uiState.combatLogs) { log ->
-                        Text(
-                            text = "> ${log.message}",
-                            color = if (log.isCritical) ToxicRed else ImmersiveText,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-
-                // Bottom Directional D-Pad with 4-Way Isometric Grid Movement & V.A.T.S.
+                // Enhanced 8-Way Directional D-Pad with Isometric Grid Movement & V.A.T.S.
                 ControlDPad(
                     onMoveNorth = { viewModel.movePlayerIsometric(0, -1) },
                     onMoveSouth = { viewModel.movePlayerIsometric(0, 1) },
                     onMoveWest = { viewModel.movePlayerIsometric(-1, 0) },
                     onMoveEast = { viewModel.movePlayerIsometric(1, 0) },
+                    onMoveNorthWest = { viewModel.movePlayerIsometric(-1, -1) },
+                    onMoveNorthEast = { viewModel.movePlayerIsometric(1, -1) },
+                    onMoveSouthWest = { viewModel.movePlayerIsometric(-1, 1) },
+                    onMoveSouthEast = { viewModel.movePlayerIsometric(1, 1) },
                     onActionVats = {
                         val selected = uiState.selectedTile
                         if (selected != null) {
@@ -166,18 +151,31 @@ fun GameScreen(viewModel: GameViewModel) {
                 )
             }
 
-            // Story / Dialogue Modal
-            if (uiState.currentViewMode == ViewMode.STORY_DIALOGUE && uiState.currentStoryNode != null) {
-                StoryModal(
-                    node = uiState.currentStoryNode!!,
+            // Story / Dialogue Modal with Rich AST Markdown Narrative Renderer
+            if (uiState.currentViewMode == ViewMode.STORY_DIALOGUE) {
+                val currentDoc = uiState.currentStoryDocument
+                    ?: com.example.data.narrative.MarkdownNarrativeParser.parseNarrativeDocument(
+                        markdownText = uiState.rawMarkdownContent,
+                        assetFileName = uiState.currentStoryAssetFileName
+                    )
+
+                StoryDialogueScreen(
+                    document = currentDoc,
+                    currentNode = uiState.currentStoryNode,
+                    availableAssets = uiState.availableStoryAssets,
+                    currentAssetFileName = uiState.currentStoryAssetFileName,
+                    onSelectAsset = { assetFileName -> viewModel.loadStoryScript(assetFileName) },
+                    onSelectNode = { nodeId -> viewModel.selectStoryNode(nodeId) },
                     onChoiceSelected = { choice -> viewModel.selectStoryChoice(choice) },
-                    onClose = { viewModel.setViewMode(ViewMode.ISOMETRIC_WORLD) }
+                    onOpenEditor = { viewModel.setViewMode(ViewMode.MARKDOWN_EDITOR) },
+                    onClose = { viewModel.setViewMode(ViewMode.ISOMETRIC_WORLD) },
+                    playerInventoryItemIds = uiState.roomInventory.map { it.itemId }.toSet()
                 )
             } else if (uiState.currentViewMode == ViewMode.MARKDOWN_EDITOR) {
                 MarkdownEditorModal(
                     initialMarkdownText = uiState.rawMarkdownContent,
                     onSaveAndParse = { newMarkdown -> viewModel.reloadFromMarkdownString(newMarkdown) },
-                    onClose = { viewModel.setViewMode(ViewMode.ISOMETRIC_WORLD) }
+                    onClose = { viewModel.setViewMode(ViewMode.STORY_DIALOGUE) }
                 )
             }
 

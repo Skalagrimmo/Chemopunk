@@ -14,6 +14,8 @@ import com.example.data.Player
 import com.example.data.TileType
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -148,10 +150,13 @@ class AsciiIsometricEngine {
 
         // Background Dark Wasteland Void
         val bgArgb = when (paletteIndex) {
-            1 -> android.graphics.Color.rgb(3, 10, 4) // Dark Phosphor Green
-            2 -> android.graphics.Color.rgb(12, 8, 2)  // Dark Amber
-            3 -> android.graphics.Color.rgb(3, 8, 16)  // Dark Cyan
-            else -> android.graphics.Color.rgb(8, 10, 14) // Dark Cyberpunk
+            1 -> android.graphics.Color.rgb(10, 14, 20)  // ANSI 256 Dark Background
+            2 -> android.graphics.Color.rgb(0, 0, 0)      // ANSI 16 Black
+            3 -> android.graphics.Color.rgb(2, 10, 4)     // Dark Phosphor Green
+            4 -> android.graphics.Color.rgb(12, 8, 2)     // Dark Amber
+            5 -> android.graphics.Color.rgb(3, 8, 16)     // Dark Cyan
+            6 -> android.graphics.Color.rgb(0, 8, 2)      // Matrix Deep Green
+            else -> android.graphics.Color.rgb(8, 10, 14) // TrueColor HDR Void
         }
         canvas.drawColor(bgArgb)
 
@@ -270,13 +275,17 @@ class AsciiIsometricEngine {
                 if (c in 0 until cols) {
                     val tile = mapGrid[r][c]
 
-                    // Calculate real-time dynamic multi-source lighting for this cell
-                    val lighting = lightingEngine.calculateLighting(
+                    // Calculate real-time 3D dynamic multi-source lighting with raymarched shadow casting
+                    val lighting = lightingEngine.calculate3DLighting(
                         gridX = c + 0.5f,
                         gridY = r + 0.5f,
+                        elevation = if (tile == TileType.WALL) 0.5f else 0f,
+                        normal = if (tile == TileType.WALL) SurfaceNormals.SOUTH_WEST else SurfaceNormals.FLOOR,
+                        mapGrid = mapGrid,
                         lightSources = activeLightsBuffer,
                         discoveredTiles = discoveredTiles,
-                        animTime = animTime
+                        animTime = animTime,
+                        enableShadows = true
                     )
 
                     // Fog of War: If hidden and undiscovered, render minimal grid marker
@@ -292,10 +301,11 @@ class AsciiIsometricEngine {
                         continue
                     }
 
-                    // Render Isometric Tile with dynamic photon illumination
+                    // Render Isometric Tile with 3D dynamic photon illumination and shadow casting
                     renderIsoTile(
                         canvas = canvas,
                         tile = tile,
+                        mapGrid = mapGrid,
                         gridX = c,
                         gridY = r,
                         centerX = centerX,
@@ -304,19 +314,25 @@ class AsciiIsometricEngine {
                         camY = player.y,
                         zoom = zoom,
                         lighting = lighting,
+                        lightSources = activeLightsBuffer,
+                        discoveredTiles = discoveredTiles,
                         palette = paletteIndex,
                         animTime = animTime,
                         isSelected = (selectedTile?.first == c && selectedTile.second == r)
                     )
 
-                    // Render Enemies standing on this tile
+                    // Render Enemies standing on this tile with 3D lighting & contact ground shadow
                     enemies.filter { it.isAlive && it.x.toInt() == c && it.y.toInt() == r }.forEach { enemy ->
-                        val enemyLighting = lightingEngine.calculateLighting(
+                        val enemyLighting = lightingEngine.calculate3DLighting(
                             gridX = enemy.x,
                             gridY = enemy.y,
+                            elevation = 0.42f,
+                            normal = SurfaceNormals.SOUTH_WEST,
+                            mapGrid = mapGrid,
                             lightSources = activeLightsBuffer,
                             discoveredTiles = discoveredTiles,
-                            animTime = animTime
+                            animTime = animTime,
+                            enableShadows = true
                         )
                         if (!enemyLighting.isFOWHidden) {
                             renderEnemySprite(
@@ -328,6 +344,7 @@ class AsciiIsometricEngine {
                                 camY = player.y,
                                 zoom = zoom,
                                 lighting = enemyLighting,
+                                lightSources = activeLightsBuffer,
                                 palette = paletteIndex,
                                 animTime = animTime,
                                 isSelected = (selectedTile?.first == c && selectedTile.second == r)
@@ -335,15 +352,27 @@ class AsciiIsometricEngine {
                         }
                     }
 
-                    // Render Player Character if on this tile
+                    // Render Player Character if on this tile with 3D directional lighting & contact shadow
                     if (player.x.toInt() == c && player.y.toInt() == r) {
+                        val player3DLighting = lightingEngine.calculate3DLighting(
+                            gridX = player.x,
+                            gridY = player.y,
+                            elevation = 0.42f,
+                            normal = SurfaceNormals.TOP,
+                            mapGrid = mapGrid,
+                            lightSources = activeLightsBuffer,
+                            discoveredTiles = discoveredTiles,
+                            animTime = animTime,
+                            enableShadows = true
+                        )
                         renderPlayerSprite(
                             canvas = canvas,
                             player = player,
                             centerX = centerX,
                             centerY = centerY,
                             zoom = zoom,
-                            lighting = lighting,
+                            lighting = player3DLighting,
+                            lightSources = activeLightsBuffer,
                             palette = paletteIndex,
                             animTime = animTime
                         )
@@ -433,6 +462,7 @@ class AsciiIsometricEngine {
     private fun renderIsoTile(
         canvas: android.graphics.Canvas,
         tile: TileType,
+        mapGrid: List<List<TileType>>,
         gridX: Int,
         gridY: Int,
         centerX: Float,
@@ -441,32 +471,113 @@ class AsciiIsometricEngine {
         camY: Float,
         zoom: Float,
         lighting: TileLighting,
+        lightSources: List<LightSource>,
+        discoveredTiles: Set<Pair<Int, Int>>,
         palette: Int,
         animTime: Float,
         isSelected: Boolean
     ) {
         val basePos = gridToIso(gridX.toFloat(), gridY.toFloat(), 0f, centerX, centerY, camX, camY, zoom)
 
+        // 1. Render Dynamic Projected Ground Shadows from nearby 3D walls / obstacles onto this floor tile
+        if (tile != TileType.WALL) {
+            val projectedShadows = lightingEngine.calculateProjectedShadows(
+                objectX = gridX + 0.5f,
+                objectY = gridY + 0.5f,
+                objectHeight = 0.8f,
+                lightSources = lightSources
+            )
+            for (shadow in projectedShadows) {
+                if (shadow.opacity > 0.2f) {
+                    val shadowEndX = gridX + 0.5f + shadow.shadowDirX * shadow.length * 0.4f
+                    val shadowEndY = gridY + 0.5f + shadow.shadowDirY * shadow.length * 0.4f
+                    val shadowIsoPos = gridToIso(shadowEndX, shadowEndY, 0.02f, centerX, centerY, camX, camY, zoom)
+                    
+                    smallPaint.textSize = 8.5f * zoom
+                    smallPaint.isFakeBoldText = false
+                    val shadowColor = android.graphics.Color.argb(
+                        (shadow.opacity * 140).toInt().coerceIn(20, 180),
+                        (shadow.lightColorR * 0.2f).toInt(),
+                        (shadow.lightColorG * 0.2f).toInt(),
+                        (shadow.lightColorB * 0.2f).toInt()
+                    )
+                    smallPaint.color = shadowColor
+                    canvas.drawText(shadow.shadowGlyph, shadowIsoPos.x, shadowIsoPos.y + 4f * zoom, smallPaint)
+                }
+            }
+        }
+
         when (tile) {
             TileType.WALL -> {
-                // 2.5D Multi-Layered Extruded Isometric Wall with Dynamic Multi-Source Illumination
+                // 2.5D Morphologically Connected Extruded Isometric Wall with 3D Normal Shading & Shadow Casting
                 val topPos = gridToIso(gridX.toFloat(), gridY.toFloat(), 1.0f, centerX, centerY, camX, camY, zoom)
 
-                val wallBaseColor = lightingEngine.blendColorWithLighting(baseR = 85, baseG = 135, baseB = 140, lighting = lighting, palette = palette)
-                val wallMidColor = lightingEngine.blendColorWithLighting(baseR = 120, baseG = 180, baseB = 175, lighting = lighting, palette = palette)
-                val wallTopColor = lightingEngine.blendColorWithLighting(baseR = 175, baseG = 235, baseB = 230, lighting = lighting, palette = palette)
-                val conduitColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 170, baseB = 45, lighting = lighting, palette = palette)
+                // 3D Surface Normal Lighting Calculations for distinct wall facets
+                val topLighting = lightingEngine.calculate3DLighting(
+                    gridX = gridX + 0.5f,
+                    gridY = gridY + 0.5f,
+                    elevation = 1.0f,
+                    normal = SurfaceNormals.TOP,
+                    mapGrid = mapGrid,
+                    lightSources = lightSources,
+                    discoveredTiles = discoveredTiles,
+                    animTime = animTime,
+                    enableShadows = true
+                )
+                val leftFacetLighting = lightingEngine.calculate3DLighting(
+                    gridX = gridX + 0.5f,
+                    gridY = gridY + 0.5f,
+                    elevation = 0.5f,
+                    normal = SurfaceNormals.SOUTH_WEST,
+                    mapGrid = mapGrid,
+                    lightSources = lightSources,
+                    discoveredTiles = discoveredTiles,
+                    animTime = animTime,
+                    enableShadows = true
+                )
+                val rightFacetLighting = lightingEngine.calculate3DLighting(
+                    gridX = gridX + 0.5f,
+                    gridY = gridY + 0.5f,
+                    elevation = 0.5f,
+                    normal = SurfaceNormals.SOUTH_EAST,
+                    mapGrid = mapGrid,
+                    lightSources = lightSources,
+                    discoveredTiles = discoveredTiles,
+                    animTime = animTime,
+                    enableShadows = true
+                )
+
+                // Compute neighbor connectivity bitmask for morphological corner and junction shapes
+                val rows = mapGrid.size
+                val cols = if (rows > 0) mapGrid[0].size else 0
+                val isNorthWall = gridY > 0 && mapGrid[gridY - 1][gridX] == TileType.WALL
+                val isEastWall = gridX + 1 < cols && mapGrid[gridY][gridX + 1] == TileType.WALL
+                val isSouthWall = gridY + 1 < rows && mapGrid[gridY + 1][gridX] == TileType.WALL
+                val isWestWall = gridX > 0 && mapGrid[gridY][gridX - 1] == TileType.WALL
+
+                val neighborMask = (if (isNorthWall) 1 else 0) or
+                        (if (isEastWall) 2 else 0) or
+                        (if (isSouthWall) 4 else 0) or
+                        (if (isWestWall) 8 else 0)
+
+                val wallShape = ContrastAndShapeLookup.getWallShape(neighborMask)
+
+                // Shading with 3D Lambertian Facet Normals
+                val wallBaseColor = lightingEngine.blendColorWithLighting(baseR = 85, baseG = 135, baseB = 140, lighting = leftFacetLighting, palette = palette, gridX = gridX, gridY = gridY)
+                val wallMidColor = lightingEngine.blendColorWithLighting(baseR = 120, baseG = 180, baseB = 175, lighting = rightFacetLighting, palette = palette, gridX = gridX, gridY = gridY)
+                val wallTopColor = lightingEngine.blendColorWithLighting(baseR = 185, baseG = 245, baseB = 240, lighting = topLighting, palette = palette, gridX = gridX, gridY = gridY)
+                val conduitColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 170, baseB = 45, lighting = topLighting, palette = palette, gridX = gridX, gridY = gridY)
 
                 textPaint.textSize = 10.5f * zoom
                 textPaint.isFakeBoldText = true
 
-                // Wall Base / Pillars
+                // Morphological Wall Base Pillar
                 textPaint.color = wallBaseColor
-                canvas.drawText("[|###|]", basePos.x, basePos.y - 4f * zoom, textPaint)
+                canvas.drawText(wallShape.basePillar, basePos.x, basePos.y - 4f * zoom, textPaint)
 
-                // Wall Conduit / Power Cable Mid-Section
+                // Morphological Wall Mid-Section (Left/Right Facet Blend)
                 textPaint.color = wallMidColor
-                canvas.drawText("|#==#|", basePos.x, basePos.y - 12f * zoom, textPaint)
+                canvas.drawText(wallShape.midSection, basePos.x, basePos.y - 12f * zoom, textPaint)
 
                 // High-voltage warning sign on alternate walls
                 if ((gridX + gridY) % 3 == 0) {
@@ -475,32 +586,30 @@ class AsciiIsometricEngine {
                     canvas.drawText("[!]", basePos.x, basePos.y - 19f * zoom, smallPaint)
                 }
 
-                // Wall Top Roof Diamond
+                // Morphological Wall Top Cap (Directly illuminated by Top Normal)
                 textPaint.color = wallTopColor
-                canvas.drawText("/#####\\", topPos.x, topPos.y - 3f * zoom, textPaint)
+                canvas.drawText(wallShape.topCap, topPos.x, topPos.y - 3f * zoom, textPaint)
                 canvas.drawText("\\#####/", topPos.x, topPos.y + 6f * zoom, textPaint)
             }
 
             TileType.TOXIC_POOL -> {
-                // Shimmering Chemopunk Acid Pool with animated fluid currents
-                val waveIdx = ((animTime * 5.0f + gridX * 2.0f + gridY).toInt() % 4)
-                val waveGlyphs = listOf("≈ ~ ≈", "% ≈ %", "~ % ~", "≈ % ≈")
-                val toxicGlyph = waveGlyphs[waveIdx]
+                // Shimmering Chemopunk Acid Pool with fluid morphology wave lookup
+                val (toxicGlyph, rimGlyph) = ContrastAndShapeLookup.getFluidCurrentGlyphs(gridX, gridY, animTime)
 
                 val pulse = (sin(animTime * 6f + gridX + gridY) * 0.18f + 0.82f)
                 val dynamicToxicLighting = lighting.copy(totalIntensity = lighting.totalIntensity * pulse)
 
-                val toxicColor = lightingEngine.blendColorWithLighting(baseR = 30, baseG = 255, baseB = 70, lighting = dynamicToxicLighting, palette = palette)
-                val rimColor = lightingEngine.blendColorWithLighting(baseR = 55, baseG = 175, baseB = 85, lighting = lighting, palette = palette)
+                val toxicColor = lightingEngine.blendColorWithLighting(baseR = 30, baseG = 255, baseB = 70, lighting = dynamicToxicLighting, palette = palette, gridX = gridX, gridY = gridY)
+                val rimColor = lightingEngine.blendColorWithLighting(baseR = 55, baseG = 175, baseB = 85, lighting = lighting, palette = palette, gridX = gridX, gridY = gridY)
 
                 textPaint.textSize = 10f * zoom
                 textPaint.isFakeBoldText = true
 
                 // Slime Rim
                 textPaint.color = rimColor
-                canvas.drawText("/  ~  \\", basePos.x, basePos.y - 6f * zoom, textPaint)
+                canvas.drawText(rimGlyph, basePos.x, basePos.y - 6f * zoom, textPaint)
 
-                // Boiling Core
+                // Boiling Fluid Core
                 textPaint.color = toxicColor
                 canvas.drawText(toxicGlyph, basePos.x, basePos.y + 2f * zoom, textPaint)
 
@@ -512,8 +621,8 @@ class AsciiIsometricEngine {
             TileType.EXTRACTION_LIFT -> {
                 // Vault 13 / Sector 7 Reinforced Extraction Elevator Lift
                 val liftPulse = (sin(animTime * 5.5f) * 0.25f + 0.75f)
-                val beaconColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 220, baseB = 0, lighting = lighting.copy(totalIntensity = lighting.totalIntensity * liftPulse), palette = palette)
-                val frameColor = lightingEngine.blendColorWithLighting(baseR = 79, baseG = 209, baseB = 197, lighting = lighting, palette = palette)
+                val beaconColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 220, baseB = 0, lighting = lighting.copy(totalIntensity = lighting.totalIntensity * liftPulse), palette = palette, gridX = gridX, gridY = gridY)
+                val frameColor = lightingEngine.blendColorWithLighting(baseR = 79, baseG = 209, baseB = 197, lighting = lighting, palette = palette, gridX = gridX, gridY = gridY)
 
                 textPaint.textSize = 9.5f * zoom
                 textPaint.isFakeBoldText = true
@@ -528,7 +637,7 @@ class AsciiIsometricEngine {
 
             TileType.DOOR -> {
                 // Bulkhead Airlock Door
-                val doorColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 175, baseB = 40, lighting = lighting, palette = palette)
+                val doorColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 175, baseB = 40, lighting = lighting, palette = palette, gridX = gridX, gridY = gridY)
                 textPaint.textSize = 10f * zoom
                 textPaint.isFakeBoldText = true
                 textPaint.color = doorColor
@@ -538,42 +647,32 @@ class AsciiIsometricEngine {
             }
 
             TileType.FLOOR -> {
-                // Chemopunk Industrial Steel Grate Diamond
-                val floorGrit = (gridX * 7 + gridY * 13) % 4
-                val floorColor = lightingEngine.blendColorWithLighting(baseR = 65, baseG = 85, baseB = 95, lighting = lighting, palette = palette)
+                // Chemopunk Industrial Steel Grate with Morphological Pattern Lookup & Dynamic Shadow Shading
+                val floorPattern = ContrastAndShapeLookup.getFloorPattern(gridX * 7 + gridY * 13)
+                
+                // When floor tile is in deep shadow (shadowFactor < 0.6), modulate pattern glyphs with density shading
+                val isDeepShadow = lighting.shadowFactor < 0.55f
+                val floorColor = lightingEngine.blendColorWithLighting(baseR = 65, baseG = 85, baseB = 95, lighting = lighting, palette = palette, gridX = gridX, gridY = gridY)
 
                 textPaint.textSize = 9f * zoom
                 textPaint.isFakeBoldText = false
                 textPaint.color = floorColor
 
-                when (floorGrit) {
-                    0 -> {
-                        canvas.drawText("/ · \\", basePos.x, basePos.y - 5f * zoom, textPaint)
-                        canvas.drawText("· : ·", basePos.x, basePos.y + 2f * zoom, textPaint)
-                        canvas.drawText("\\ · /", basePos.x, basePos.y + 8f * zoom, textPaint)
-                    }
-                    1 -> {
-                        canvas.drawText("/ + \\", basePos.x, basePos.y - 5f * zoom, textPaint)
-                        canvas.drawText("+ # +", basePos.x, basePos.y + 2f * zoom, textPaint)
-                        canvas.drawText("\\ + /", basePos.x, basePos.y + 8f * zoom, textPaint)
-                    }
-                    2 -> {
-                        canvas.drawText("/ - \\", basePos.x, basePos.y - 5f * zoom, textPaint)
-                        canvas.drawText("- · -", basePos.x, basePos.y + 2f * zoom, textPaint)
-                        canvas.drawText("\\ - /", basePos.x, basePos.y + 8f * zoom, textPaint)
-                    }
-                    else -> {
-                        canvas.drawText("/ · \\", basePos.x, basePos.y - 5f * zoom, textPaint)
-                        canvas.drawText("· * ·", basePos.x, basePos.y + 2f * zoom, textPaint)
-                        canvas.drawText("\\ · /", basePos.x, basePos.y + 8f * zoom, textPaint)
-                    }
+                if (isDeepShadow) {
+                    canvas.drawText("· · ·", basePos.x, basePos.y - 5f * zoom, textPaint)
+                    canvas.drawText(floorPattern.centerRow, basePos.x, basePos.y + 2f * zoom, textPaint)
+                    canvas.drawText("░ ░ ░", basePos.x, basePos.y + 8f * zoom, textPaint)
+                } else {
+                    canvas.drawText(floorPattern.topRow, basePos.x, basePos.y - 5f * zoom, textPaint)
+                    canvas.drawText(floorPattern.centerRow, basePos.x, basePos.y + 2f * zoom, textPaint)
+                    canvas.drawText(floorPattern.bottomRow, basePos.x, basePos.y + 8f * zoom, textPaint)
                 }
             }
         }
 
         // Selection Reticle on Targeted Tile
         if (isSelected) {
-            val reticleColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 220, baseB = 0, lighting = lighting.copy(totalIntensity = 1.3f), palette = palette)
+            val reticleColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 220, baseB = 0, lighting = lighting.copy(totalIntensity = 1.3f, shadowFactor = 1f), palette = palette)
             textPaint.textSize = 14f * zoom
             textPaint.isFakeBoldText = true
             textPaint.color = reticleColor
@@ -591,15 +690,23 @@ class AsciiIsometricEngine {
         centerY: Float,
         zoom: Float,
         lighting: TileLighting,
+        lightSources: List<LightSource>,
         palette: Int,
         animTime: Float
     ) {
+        // Ground Contact Drop-Shadow cast under Player's feet
+        val groundPos = gridToIso(player.x, player.y, 0.02f, centerX, centerY, player.x, player.y, zoom)
+        smallPaint.textSize = 8.5f * zoom
+        smallPaint.isFakeBoldText = false
+        smallPaint.color = android.graphics.Color.argb(130, 10, 15, 20)
+        canvas.drawText("(░@░)", groundPos.x, groundPos.y + 4f * zoom, smallPaint)
+
         val walkBob = sin(animTime * 4f) * 0.05f
         val elevation = 0.42f + walkBob
         val pos = gridToIso(player.x, player.y, elevation, centerX, centerY, player.x, player.y, zoom)
 
-        val playerGlow = lightingEngine.blendColorWithLighting(baseR = 79, baseG = 209, baseB = 197, lighting = lighting.copy(totalIntensity = 1.1f), palette = palette)
-        val armorColor = lightingEngine.blendColorWithLighting(baseR = 240, baseG = 250, baseB = 255, lighting = lighting.copy(totalIntensity = 1.1f), palette = palette)
+        val playerGlow = lightingEngine.blendColorWithLighting(baseR = 79, baseG = 209, baseB = 197, lighting = lighting.copy(totalIntensity = max(lighting.totalIntensity, 0.95f)), palette = palette)
+        val armorColor = lightingEngine.blendColorWithLighting(baseR = 240, baseG = 250, baseB = 255, lighting = lighting.copy(totalIntensity = max(lighting.totalIntensity, 0.95f)), palette = palette)
 
         textPaint.textSize = 12f * zoom
         textPaint.isFakeBoldText = true
@@ -649,10 +756,18 @@ class AsciiIsometricEngine {
         camY: Float,
         zoom: Float,
         lighting: TileLighting,
+        lightSources: List<LightSource>,
         palette: Int,
         animTime: Float,
         isSelected: Boolean
     ) {
+        // Ground Contact Drop-Shadow cast under Enemy
+        val groundPos = gridToIso(enemy.x, enemy.y, 0.02f, centerX, centerY, camX, camY, zoom)
+        smallPaint.textSize = 8.5f * zoom
+        smallPaint.isFakeBoldText = false
+        smallPaint.color = android.graphics.Color.argb(120, 10, 15, 20)
+        canvas.drawText("(░■░)", groundPos.x, groundPos.y + 4f * zoom, smallPaint)
+
         // State-driven vertical hover and panic jitter
         val hover = when (enemy.state) {
             NpcState.FLEE -> sin(animTime * 14f + enemy.x) * 0.15f
@@ -864,7 +979,7 @@ class AsciiIsometricEngine {
                     val particleXJitter = sin(pTime * 5.0f) * 0.15f
 
                     val pos = gridToIso(c + 0.5f + particleXJitter, r + 0.5f, particleYOffset, centerX, centerY, playerX, playerY, zoom)
-                    val glyph = if (particleProgress > 0.6f) "°" else if (particleProgress > 0.3f) "^" else "~"
+                    val glyph = ContrastAndShapeLookup.getAtmosphericParticle(particleProgress, c xor r)
 
                     canvas.drawText(glyph, pos.x, pos.y, smallPaint)
                 }
@@ -947,16 +1062,26 @@ class AsciiIsometricEngine {
         smallPaint.textAlign = Paint.Align.LEFT
         smallPaint.isFakeBoldText = true
 
-        // Top-Left Header Coordinates
+        val colorizerMode = when (palette) {
+            1 -> "ANSI 256"
+            2 -> "ANSI 16"
+            3 -> "P1 PHOSPHOR"
+            4 -> "P20 AMBER"
+            5 -> "SYNTH CYAN"
+            6 -> "MATRIX RAIN"
+            else -> "TRUECOLOR 24b"
+        }
+
+        // Top-Left Header Coordinates & Graphics Engine DSP Info
         smallPaint.color = overlayColor
-        canvas.drawText("FALLOUT DYNAMIC LIGHT ENGINE // SECTOR 07", 16f, 22f, smallPaint)
+        canvas.drawText("FALLOUT ENGINE // SECTOR 07 // $colorizerMode // 3D RAY-SHADOWS", 16f, 22f, smallPaint)
 
         smallPaint.color = mutedColor
         val px = player.x.toInt()
         val py = player.y.toInt()
         val toxRatio = player.toxicity
         val zoomInt = (zoom * 10).toInt()
-        canvas.drawText("POS: [X:$px, Y:$py] | LIGHTS: $activeLightCount | RADS: $toxRatio% | ZOOM: ${zoomInt / 10}.${zoomInt % 10}x", 16f, 36f, smallPaint)
+        canvas.drawText("POS: [X:$px, Y:$py] | LIGHTS: $activeLightCount | SHADOWS: 3D RAYCAST | RADS: $toxRatio% | ZOOM: ${zoomInt / 10}.${zoomInt % 10}x", 16f, 36f, smallPaint)
 
         // Top-Right Selected Tile / Target Info
         if (selectedTile != null) {
