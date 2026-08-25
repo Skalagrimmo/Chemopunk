@@ -40,6 +40,7 @@ class AsciiIsometricEngine {
     }
 
     private val lightingEngine = DynamicLightingEngine()
+    val lightMapBuffer = LightMapBuffer(width = 32, height = 32, lightingEngine = lightingEngine)
 
     private val textPaint = Paint().apply {
         isAntiAlias = true
@@ -235,6 +236,15 @@ class AsciiIsometricEngine {
             }
         }
 
+        // 4. Compute Light-Map Buffer for spatial distance falloff, photon colors, and brightness
+        lightMapBuffer.computeLightMap(
+            mapGrid = mapGrid,
+            lightSources = activeLightsBuffer,
+            discoveredTiles = discoveredTiles,
+            animTime = animTime,
+            enableShadows = true
+        )
+
         // Draw Pathfinding / Movement Line if a tile is selected
         if (selectedTile != null) {
             val (stX, stY) = selectedTile
@@ -275,18 +285,9 @@ class AsciiIsometricEngine {
                 if (c in 0 until cols) {
                     val tile = mapGrid[r][c]
 
-                    // Calculate real-time 3D dynamic multi-source lighting with raymarched shadow casting
-                    val lighting = lightingEngine.calculate3DLighting(
-                        gridX = c + 0.5f,
-                        gridY = r + 0.5f,
-                        elevation = if (tile == TileType.WALL) 0.5f else 0f,
-                        normal = if (tile == TileType.WALL) SurfaceNormals.SOUTH_WEST else SurfaceNormals.FLOOR,
-                        mapGrid = mapGrid,
-                        lightSources = activeLightsBuffer,
-                        discoveredTiles = discoveredTiles,
-                        animTime = animTime,
-                        enableShadows = true
-                    )
+                    // Retrieve pre-calculated lighting from Light-Map Buffer
+                    val elevation = if (tile == TileType.WALL) 0.5f else 0f
+                    val lighting = lightMapBuffer.getTileLighting(c, r, elevation)
 
                     // Fog of War: If hidden and undiscovered, render minimal grid marker
                     if (lighting.isFOWHidden) {
@@ -323,16 +324,10 @@ class AsciiIsometricEngine {
 
                     // Render Enemies standing on this tile with 3D lighting & contact ground shadow
                     enemies.filter { it.isAlive && it.x.toInt() == c && it.y.toInt() == r }.forEach { enemy ->
-                        val enemyLighting = lightingEngine.calculate3DLighting(
+                        val enemyLighting = lightMapBuffer.sampleInterpolatedLighting(
                             gridX = enemy.x,
                             gridY = enemy.y,
-                            elevation = 0.42f,
-                            normal = SurfaceNormals.SOUTH_WEST,
-                            mapGrid = mapGrid,
-                            lightSources = activeLightsBuffer,
-                            discoveredTiles = discoveredTiles,
-                            animTime = animTime,
-                            enableShadows = true
+                            elevation = 0.42f
                         )
                         if (!enemyLighting.isFOWHidden) {
                             renderEnemySprite(
@@ -354,16 +349,10 @@ class AsciiIsometricEngine {
 
                     // Render Player Character if on this tile with 3D directional lighting & contact shadow
                     if (player.x.toInt() == c && player.y.toInt() == r) {
-                        val player3DLighting = lightingEngine.calculate3DLighting(
+                        val player3DLighting = lightMapBuffer.sampleInterpolatedLighting(
                             gridX = player.x,
                             gridY = player.y,
-                            elevation = 0.42f,
-                            normal = SurfaceNormals.TOP,
-                            mapGrid = mapGrid,
-                            lightSources = activeLightsBuffer,
-                            discoveredTiles = discoveredTiles,
-                            animTime = animTime,
-                            enableShadows = true
+                            elevation = 0.42f
                         )
                         renderPlayerSprite(
                             canvas = canvas,
@@ -422,24 +411,6 @@ class AsciiIsometricEngine {
                 smallPaint.isFakeBoldText = true
 
                 canvas.drawText(ft.text, pos.x, pos.y - 34f * zoom, smallPaint)
-            }
-        }
-
-        // Render V.A.T.S. Tactical Target Breakdown (if enemy selected)
-        if (selectedTile != null) {
-            val (stX, stY) = selectedTile
-            val targetEnemy = enemies.firstOrNull { it.isAlive && it.x.toInt() == stX && it.y.toInt() == stY }
-            if (targetEnemy != null) {
-                renderVatsTargetOverlay(
-                    canvas = canvas,
-                    enemy = targetEnemy,
-                    player = player,
-                    centerX = centerX,
-                    centerY = centerY,
-                    zoom = zoom,
-                    palette = paletteIndex,
-                    animTime = animTime
-                )
             }
         }
 
@@ -985,61 +956,6 @@ class AsciiIsometricEngine {
                 }
             }
         }
-    }
-
-    private fun renderVatsTargetOverlay(
-        canvas: android.graphics.Canvas,
-        enemy: Enemy,
-        player: Player,
-        centerX: Float,
-        centerY: Float,
-        zoom: Float,
-        palette: Int,
-        animTime: Float
-    ) {
-        val pos = gridToIso(enemy.x, enemy.y, 0.9f, centerX, centerY, player.x, player.y, zoom)
-        val dist = hypot(player.x - enemy.x, player.y - enemy.y)
-
-        val headChance = (85 - (dist * 8)).toInt().coerceIn(15, 95)
-        val torsoChance = (95 - (dist * 5)).toInt().coerceIn(35, 95)
-        val armsChance = (80 - (dist * 7)).toInt().coerceIn(20, 90)
-        val legsChance = (88 - (dist * 6)).toInt().coerceIn(25, 95)
-
-        val vatsColor = lightingEngine.blendColorWithLighting(baseR = 255, baseG = 215, baseB = 0, lighting = TileLighting(1f, 255, 215, 0, true, false), palette = palette)
-        val cardBgColor = android.graphics.Color.argb(220, 8, 14, 18)
-
-        smallPaint.textSize = 8.5f * zoom
-        smallPaint.isFakeBoldText = true
-
-        val boxLeft = pos.x + 36f * zoom
-        val boxTop = pos.y - 45f * zoom
-        val boxWidth = 118f * zoom
-        val boxHeight = 78f * zoom
-
-        bgPaint.color = cardBgColor
-        canvas.drawRect(boxLeft, boxTop, boxLeft + boxWidth, boxTop + boxHeight, bgPaint)
-
-        linePaint.color = vatsColor
-        linePaint.strokeWidth = 1f * zoom
-        canvas.drawRect(boxLeft, boxTop, boxLeft + boxWidth, boxTop + boxHeight, linePaint)
-
-        smallPaint.color = vatsColor
-        smallPaint.textAlign = Paint.Align.LEFT
-
-        val stateBadge = when (enemy.state) {
-            NpcState.AGGRESSIVE -> "⚔ AGGRO"
-            NpcState.FLEE -> "💨 FLEE"
-            NpcState.PATROL -> "👁 PATROL"
-        }
-
-        canvas.drawText("V.A.T.S. TARGET // $stateBadge", boxLeft + 6f * zoom, boxTop + 12f * zoom, smallPaint)
-        canvas.drawText("• HEAD:  $headChance% [2x]", boxLeft + 6f * zoom, boxTop + 24f * zoom, smallPaint)
-        canvas.drawText("• TORSO: $torsoChance%", boxLeft + 6f * zoom, boxTop + 35f * zoom, smallPaint)
-        canvas.drawText("• ARMS:  $armsChance%", boxLeft + 6f * zoom, boxTop + 46f * zoom, smallPaint)
-        canvas.drawText("• LEGS:  $legsChance%", boxLeft + 6f * zoom, boxTop + 57f * zoom, smallPaint)
-        canvas.drawText("• SENS: RAD ${enemy.detectionRadius.toInt()}m", boxLeft + 6f * zoom, boxTop + 69f * zoom, smallPaint)
-
-        smallPaint.textAlign = Paint.Align.CENTER
     }
 
     private fun renderTacticalHudAndCrt(

@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -25,27 +27,36 @@ data class AmbientAudioProfile(
     val toxicityRatio: Float = 0.0f,   // 0.0 to 1.0
     val isMuted: Boolean = false,
     val masterVolume: Float = 0.65f,
+    val industrialHumFrequency: Float = 55.0f,
     val audioStatusDescription: String = "IDLE"
 )
 
 /**
- * Lightweight Procedural Audio Synthesis Engine for 2.5D Wasteland Atmosphere.
+ * Low-Level Procedural Background Audio Looping Engine for Chemopunk Ambient Atmosphere.
  *
- * Uses low-overhead, real-time PCM audio synthesis (`AudioTrack` in STREAM mode)
- * to generate dynamic, seamless ambient soundscapes without external audio asset dependencies:
+ * Implements real-time PCM audio streaming via `AudioTrack` in STREAM mode to generate
+ * an evocative, continuous industrial soundscape tailored to the Chemopunk setting:
  *
- * 1. Deep Sub-Bass Drone: Modulated by dark lighting conditions (darker vaults = ominous deep sub-bass).
- * 2. High-Voltage Dynamo Hum & Light Resonance: Oscillating higher harmonics reacting to direct point-light photon intensity.
- * 3. Danger / Proximity Pulse (Heartbeat & Alarm Drone): Rises when aggressive NPCs enter detection perimeter or when in melee range.
- * 4. Geiger Counter Static / Radiation Clicks: Procedural Poisson distribution crackle reacting to character toxicity level.
+ * 1. Sub-Harmonic Transformer & Turbine Hum: 55Hz fundamental with 2nd, 3rd, and 4th harmonics
+ *    shaped with warm analog saturation for deep subterranean machinery resonance.
+ * 2. Coolant Loop / Ventilation LFO: Slow cyclic 0.07Hz sweeping modulator simulating massive
+ *    heavy ventilation shafts and chemical coolant circulation.
+ * 3. Pressurized Pneumatic Valve & Steam Exhaust: Procedural pink-noise filtered steam bursts
+ *    with exponential decay envelopes mimicking pneumatic actuators and chemical valves.
+ * 4. Chemical Percolation & Reactor Cavitation: Low-frequency FM bubble synthesis reacting to
+ *    toxic hazards and character toxicity.
+ * 5. High-Voltage Fluorescent Ballast Buzz: High-frequency transformer buzz oscillating with
+ *    direct photon lighting intensity.
+ * 6. Danger Sub-Bass Rhythm: Heartbeat/alarm drone that accelerates when hostiles are near.
  */
 class ProceduralAudioManager(
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) {
     companion object {
         private const val TAG = "ProceduralAudioManager"
-        private const val SAMPLE_RATE = 22050 // Lightweight 22.05 kHz sample rate for minimal CPU/Memory usage
-        private const val BUFFER_CHUNK_SIZE = 1024 // Small chunk buffer for low latency streaming
+        const val SAMPLE_RATE = 22050 // Lightweight 22.05 kHz sample rate for minimal CPU/Memory usage
+        const val BUFFER_CHUNK_SIZE = 1024 // Small chunk buffer for low-latency streaming
+        const val BASE_HUM_FREQ = 55.0 // Subterranean 55 Hz mains/transformer hum fundamental
     }
 
     private var audioTrack: AudioTrack? = null
@@ -56,6 +67,9 @@ class ProceduralAudioManager(
 
     @Volatile
     private var isPlaying = false
+
+    @Volatile
+    private var isPaused = false
 
     @Volatile
     private var targetLighting = 0.5f
@@ -93,12 +107,13 @@ class ProceduralAudioManager(
         targetToxicity = (toxicity / 100f).coerceIn(0.0f, 1.0f)
 
         val status = when {
-            isAudioMuted -> "MUTED"
+            isAudioMuted || isPaused -> "MUTED / PAUSED"
             targetDanger > 0.6f -> "DANGER PULSE (AGGRO)"
             targetDanger > 0.2f -> "CAUTION (PROXIMITY)"
-            targetLighting < 0.25f -> "SUB-VOID DRONE"
-            targetLighting > 0.8f -> "GENERATOR RESONANCE"
-            else -> "SECTOR AMBIENCE"
+            targetToxicity > 0.3f -> "CHEM-VENT CAVITATION"
+            targetLighting < 0.25f -> "SUB-VOID TURBINE"
+            targetLighting > 0.8f -> "HIGH-VOLTAGE RESONANCE"
+            else -> "INDUSTRIAL HUM"
         }
 
         _audioProfile.value = AmbientAudioProfile(
@@ -107,8 +122,14 @@ class ProceduralAudioManager(
             toxicityRatio = targetToxicity,
             isMuted = isAudioMuted,
             masterVolume = masterVolume,
+            industrialHumFrequency = BASE_HUM_FREQ.toFloat(),
             audioStatusDescription = status
         )
+    }
+
+    fun setMasterVolume(volume: Float) {
+        masterVolume = volume.coerceIn(0.0f, 1.0f)
+        updateAtmosphere(targetLighting, targetDanger, (targetToxicity * 100).toInt())
     }
 
     /**
@@ -122,6 +143,14 @@ class ProceduralAudioManager(
     fun setMuted(muted: Boolean) {
         isAudioMuted = muted
         updateAtmosphere(targetLighting, targetDanger, (targetToxicity * 100).toInt())
+    }
+
+    fun pause() {
+        isPaused = true
+    }
+
+    fun resume() {
+        isPaused = false
     }
 
     /**
@@ -162,86 +191,144 @@ class ProceduralAudioManager(
                 audioTrack?.play()
 
                 val pcmBuffer = ShortArray(BUFFER_CHUNK_SIZE)
-                var phaseDrone = 0.0
-                var phaseSub = 0.0
-                var phasePulse = 0.0
-                var phaseHum = 0.0
+
+                // Synthesis Oscillators & Phase Accumulators
+                var phaseSubHum = 0.0
+                var phaseHarmonic2 = 0.0
+                var phaseHarmonic3 = 0.0
+                var phaseHarmonic4 = 0.0
+                var phaseLfo = 0.0
+                var phaseChemBubble = 0.0
+                var phaseDangerPulse = 0.0
+
+                // Filter & Envelope State
+                var noiseFilterState = 0.0f
+                var steamTimerSamples = 0
+                var steamEnvelope = 0.0f
+                val steamIntervalSamples = (SAMPLE_RATE * 9.5).toInt() // Steam release every ~9.5s
+
+                // Parameter Slewing for Click-Free Interpolation
                 var smoothedLighting = 0.5f
                 var smoothedDanger = 0.0f
                 var smoothedTox = 0.0f
 
-                val random = Random(42)
+                val random = Random(1337)
 
                 while (isActive && isPlaying) {
-                    if (isAudioMuted) {
+                    if (isAudioMuted || isPaused) {
                         pcmBuffer.fill(0)
                         audioTrack?.write(pcmBuffer, 0, pcmBuffer.size)
                         kotlinx.coroutines.delay(40)
                         continue
                     }
 
-                    // Smooth parameter interpolation to prevent pops/clicks
-                    smoothedLighting += (targetLighting - smoothedLighting) * 0.05f
-                    smoothedDanger += (targetDanger - smoothedDanger) * 0.08f
-                    smoothedTox += (targetToxicity - smoothedTox) * 0.05f
+                    // Smooth parameter interpolation to prevent discontinuities/clicks
+                    smoothedLighting += (targetLighting - smoothedLighting) * 0.04f
+                    smoothedDanger += (targetDanger - smoothedDanger) * 0.06f
+                    smoothedTox += (targetToxicity - smoothedTox) * 0.04f
 
-                    // Base frequency calculations
-                    // Dark areas produce deeper, heavier bass drone (45Hz - 60Hz)
-                    val baseSubFreq = 42.0 + (1.0f - smoothedLighting.coerceIn(0f, 1f)) * 24.0
-                    // Direct lights create high-voltage 120Hz/240Hz fluorescent/transformer hum
-                    val humFreq = 110.0 + (smoothedLighting * 60.0)
-                    // Danger accelerates an ominous 1.2Hz - 3.8Hz sub-pulse rhythm
-                    val dangerPulseFreq = 0.8 + (smoothedDanger * 2.8)
+                    // 1. Base Chemopunk Industrial Hum Frequencies
+                    // Subterranean hum with subtle pitch modulation from ventilation LFO
+                    val lfoMod = sin(phaseLfo) * 1.8 // +/- 1.8 Hz sweep
+                    val currentHumFreq = BASE_HUM_FREQ + lfoMod
+                    val subHumInc = (2.0 * PI * currentHumFreq) / SAMPLE_RATE
+                    val harm2Inc = (2.0 * PI * (currentHumFreq * 2.0)) / SAMPLE_RATE
+                    val harm3Inc = (2.0 * PI * (currentHumFreq * 3.0 + 0.4)) / SAMPLE_RATE // Slight detuning for rich chorusing
+                    val harm4Inc = (2.0 * PI * (currentHumFreq * 4.0)) / SAMPLE_RATE
+                    val lfoInc = (2.0 * PI * 0.075) / SAMPLE_RATE // 0.075 Hz slow cycle
 
-                    val subIncrement = (2.0 * PI * baseSubFreq) / SAMPLE_RATE
-                    val droneIncrement = (2.0 * PI * (baseSubFreq * 1.5)) / SAMPLE_RATE
-                    val humIncrement = (2.0 * PI * humFreq) / SAMPLE_RATE
-                    val pulseIncrement = (2.0 * PI * dangerPulseFreq) / SAMPLE_RATE
+                    // 2. High-Voltage / Lighting transformer buzz (120Hz - 180Hz)
+                    val fluorescentHumFreq = 120.0 + (smoothedLighting * 50.0)
+                    val fluorescentHumInc = (2.0 * PI * fluorescentHumFreq) / SAMPLE_RATE
 
-                    val dangerVolume = smoothedDanger * 0.45f
-                    val darknessVolume = (1.0f - (smoothedLighting * 0.7f)).coerceIn(0.15f, 0.55f)
-                    val lightHumVolume = (smoothedLighting * 0.28f).coerceIn(0.02f, 0.35f)
-                    val geigerThreshold = 0.992f - (smoothedTox * 0.07f) // Lower threshold = more frequent random static crackles
+                    // 3. Danger Pulse Frequency (Heartbeat / Alarm pace)
+                    val dangerPulseFreq = 0.85 + (smoothedDanger * 2.6)
+                    val dangerPulseInc = (2.0 * PI * dangerPulseFreq) / SAMPLE_RATE
+
+                    // 4. Chemical Cavitation Bubble Frequency
+                    val bubbleModFreq = 18.0 + (smoothedTox * 45.0)
+                    val bubbleInc = (2.0 * PI * bubbleModFreq) / SAMPLE_RATE
+
+                    // Dynamic Mixing Volumes
+                    val industrialHumGain = 0.38f + (1.0f - smoothedLighting.coerceIn(0f, 1f)) * 0.18f
+                    val highVoltageGain = (smoothedLighting * 0.16f).coerceIn(0.02f, 0.24f)
+                    val dangerGain = smoothedDanger * 0.42f
+                    val toxicityGain = (smoothedTox * 0.35f).coerceIn(0.0f, 0.40f)
 
                     for (i in 0 until BUFFER_CHUNK_SIZE) {
-                        // 1. Heavy Sub-Bass Sine Drone (Industrial atmosphere)
-                        val subSample = sin(phaseSub) * darknessVolume
+                        // --- A. Multi-Harmonic Industrial Hum & Transformer Drone ---
+                        val rawSub = sin(phaseSubHum)
+                        // Soft analog saturation polynomial: tanh(x) ~ x - (x^3 / 3)
+                        val saturatedSub = (rawSub - (rawSub * rawSub * rawSub * 0.22)).toFloat()
 
-                        // 2. Secondary minor harmonic drone with slight chorusing
-                        val droneSample = sin(phaseDrone) * (darknessVolume * 0.5f)
+                        val harm2 = (sin(phaseHarmonic2) * 0.35).toFloat()
+                        val harm3 = (sin(phaseHarmonic3) * 0.18).toFloat()
+                        val harm4 = (sin(phaseHarmonic4) * 0.08).toFloat()
 
-                        // 3. Electrical/Generator Hum (Oscillating with slight noise)
-                        val humSample = sin(phaseHum) * lightHumVolume
+                        val industrialHumSample = (saturatedSub + harm2 + harm3 + harm4) * industrialHumGain
 
-                        // 4. Danger Pulse / Tension Beat
-                        val pulseModulator = (sin(phasePulse) * 0.5 + 0.5).toFloat()
-                        val dangerAlarm = (sin(phaseDrone * 2.2) * pulseModulator) * dangerVolume
+                        // --- B. High-Voltage Fluorescent / Transformer Ballast Buzz ---
+                        val fluorescentSample = (sin(phaseHarmonic2 * 1.5) * 0.6 + sin(phaseHarmonic4 * 1.2) * 0.4).toFloat() * highVoltageGain
 
-                        // 5. Radiation / Geiger Counter crackle
-                        val isGeigerClick = if (smoothedTox > 0.05f && random.nextFloat() > geigerThreshold) {
-                            (random.nextFloat() * 2f - 1f) * (0.3f + smoothedTox * 0.5f)
+                        // --- C. Pressurized Steam Release / Valve Exhaust ---
+                        steamTimerSamples++
+                        if (steamTimerSamples >= steamIntervalSamples) {
+                            steamTimerSamples = 0
+                            steamEnvelope = 0.45f // Trigger steam burst
+                        }
+                        if (steamEnvelope > 0.001f) {
+                            steamEnvelope *= 0.9996f // Exponential decay
+                        }
+
+                        // Generate pink-ish noise via single-pole low-pass filter
+                        val whiteNoise = (random.nextFloat() * 2f - 1f)
+                        noiseFilterState = noiseFilterState * 0.88f + whiteNoise * 0.12f
+                        val steamSample = noiseFilterState * steamEnvelope
+
+                        // --- D. Chemopunk Chemical Bubble Cavitation & Geiger Clicks ---
+                        val bubbleCarrier = sin(phaseChemBubble)
+                        val bubbleMod = sin(phaseChemBubble * 3.5) * 0.5 + 0.5
+                        val chemBubbleSample = (bubbleCarrier * bubbleMod * toxicityGain).toFloat()
+
+                        // Geiger Poisson Clicks
+                        val geigerThreshold = 0.993f - (smoothedTox * 0.06f)
+                        val geigerClick = if (smoothedTox > 0.04f && random.nextFloat() > geigerThreshold) {
+                            (random.nextFloat() * 2f - 1f) * (0.25f + smoothedTox * 0.45f)
                         } else {
                             0f
                         }
 
-                        // Combine all procedural stems
-                        val rawMix = (subSample + droneSample + humSample + dangerAlarm + isGeigerClick) * masterVolume
-                        val clampedMix = rawMix.coerceIn(-1.0, 1.0)
+                        // --- E. Danger Tension Pulse / Subterranean Alarm ---
+                        val pulseEnvelope = (sin(phaseDangerPulse) * 0.5 + 0.5).toFloat()
+                        val dangerSample = (sin(phaseSubHum * 2.4) * pulseEnvelope * dangerGain).toFloat()
 
-                        pcmBuffer[i] = (clampedMix * 32767.0).toInt().toShort()
+                        // --- Master Soundstage Composite ---
+                        val rawMix = (industrialHumSample + fluorescentSample + steamSample + chemBubbleSample + geigerClick + dangerSample) * masterVolume
+                        val clampedMix = rawMix.coerceIn(-1.0f, 1.0f)
 
-                        // Advance wave phases
-                        phaseSub += subIncrement
-                        if (phaseSub > 2.0 * PI) phaseSub -= 2.0 * PI
+                        pcmBuffer[i] = (clampedMix * 32767.0f).toInt().toShort()
 
-                        phaseDrone += droneIncrement
-                        if (phaseDrone > 2.0 * PI) phaseDrone -= 2.0 * PI
+                        // Advance Phase Accumulators
+                        phaseSubHum += subHumInc
+                        if (phaseSubHum > 2.0 * PI) phaseSubHum -= 2.0 * PI
 
-                        phaseHum += humIncrement
-                        if (phaseHum > 2.0 * PI) phaseHum -= 2.0 * PI
+                        phaseHarmonic2 += harm2Inc
+                        if (phaseHarmonic2 > 2.0 * PI) phaseHarmonic2 -= 2.0 * PI
 
-                        phasePulse += pulseIncrement
-                        if (phasePulse > 2.0 * PI) phasePulse -= 2.0 * PI
+                        phaseHarmonic3 += harm3Inc
+                        if (phaseHarmonic3 > 2.0 * PI) phaseHarmonic3 -= 2.0 * PI
+
+                        phaseHarmonic4 += harm4Inc
+                        if (phaseHarmonic4 > 2.0 * PI) phaseHarmonic4 -= 2.0 * PI
+
+                        phaseLfo += lfoInc
+                        if (phaseLfo > 2.0 * PI) phaseLfo -= 2.0 * PI
+
+                        phaseChemBubble += bubbleInc
+                        if (phaseChemBubble > 2.0 * PI) phaseChemBubble -= 2.0 * PI
+
+                        phaseDangerPulse += dangerPulseInc
+                        if (phaseDangerPulse > 2.0 * PI) phaseDangerPulse -= 2.0 * PI
                     }
 
                     audioTrack?.write(pcmBuffer, 0, pcmBuffer.size)

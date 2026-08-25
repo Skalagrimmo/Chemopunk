@@ -17,17 +17,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -44,19 +44,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.AcidYellow
-import com.example.ui.theme.AmberTerminal
 import com.example.ui.theme.ImmersiveAccentOrange
 import com.example.ui.theme.ImmersiveBackground
 import com.example.ui.theme.ImmersiveSurface
 import com.example.ui.theme.ImmersiveSurfaceVariant
 import com.example.ui.theme.ImmersiveTeal
 import com.example.ui.theme.PhosphorGreen
-import com.example.ui.theme.ToxicRed
 
 /**
- * Enhanced 8-Way Tactile Tactical D-Pad.
- * Fits within the original compact footprint without enlarging the controller.
- * Provides 8-directional isometric navigation: N, NE, E, SE, S, SW, W, NW + Center V.A.T.S.
+ * Smartphone-Optimized Dual Thumb Control Deck.
+ * Left thumb: 8-way directional tactile navigation matrix.
+ * Right thumb: High-priority ergonomic action buttons (Action, Inventory, Wait).
  */
 @Composable
 fun ControlDPad(
@@ -68,27 +66,33 @@ fun ControlDPad(
     onMoveNorthEast: () -> Unit = {},
     onMoveSouthWest: () -> Unit = {},
     onMoveSouthEast: () -> Unit = {},
-    onActionVats: () -> Unit,
-    onQuickAttack: () -> Unit = onActionVats,
+    onAction: () -> Unit = {},
+    onOpenInventory: () -> Unit = {},
     onWaitTurn: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .background(ImmersiveSurface)
+            .border(
+                1.dp,
+                ImmersiveSurfaceVariant,
+                RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 8-Way Directional Controller Matrix (Compact 3x3 Grid)
+        // Left Thumb Zone: 8-Way Tactile D-Pad Matrix
         Box(
             modifier = Modifier
                 .background(
-                    color = ImmersiveSurface,
+                    color = ImmersiveBackground,
                     shape = RoundedCornerShape(16.dp)
                 )
                 .border(1.2.dp, ImmersiveSurfaceVariant, RoundedCornerShape(16.dp))
-                .padding(5.dp)
+                .padding(4.dp)
         ) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -133,13 +137,13 @@ fun ControlDPad(
                     )
                 }
 
-                // Row 2: West (←), Center V.A.T.S. / Inspect (🎯), East (→)
+                // Row 2: West (←), Center Action (⚡), East (→)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DPadCell(
-                        icon = Icons.Default.ArrowBack,
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
                         rotation = 0f,
                         contentDescription = "West",
                         testTag = "btn_move_west",
@@ -149,31 +153,31 @@ fun ControlDPad(
                         onClick = onMoveWest
                     )
 
-                    // Center Tactical Targeting / Inspect Button
+                    // Center Primary Action Button
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
-                            .background(ImmersiveTeal.copy(alpha = 0.22f))
-                            .border(1.2.dp, ImmersiveTeal, CircleShape)
+                            .background(ImmersiveTeal.copy(alpha = 0.25f))
+                            .border(1.5.dp, ImmersiveTeal, CircleShape)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(bounded = true, color = ImmersiveTeal),
-                                onClick = onActionVats
+                                onClick = onAction
                             )
                             .testTag("btn_action_center"),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.GpsFixed,
-                            contentDescription = "Inspect / VATS",
-                            tint = ImmersiveTeal,
+                            imageVector = Icons.Default.FlashOn,
+                            contentDescription = "Action",
+                            tint = PhosphorGreen,
                             modifier = Modifier.size(18.dp)
                         )
                     }
 
                     DPadCell(
-                        icon = Icons.Default.ArrowForward,
+                        icon = Icons.AutoMirrored.Filled.ArrowForward,
                         rotation = 0f,
                         contentDescription = "East",
                         testTag = "btn_move_east",
@@ -225,68 +229,114 @@ fun ControlDPad(
             }
         }
 
-        // Action Tactical Bar: V.A.T.S. [E] & WAIT TURN [Z]
+        // Right Thumb Zone: Oversized Smartphone Action Triggers
         Column(
-            modifier = Modifier.padding(start = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // 1. Primary Action Button
             Button(
-                onClick = onQuickAttack,
+                onClick = onAction,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ImmersiveTeal,
                     contentColor = ImmersiveBackground
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
-                    .height(44.dp)
-                    .fillMaxWidth(0.95f)
-                    .testTag("btn_quick_action")
+                    .height(42.dp)
+                    .fillMaxWidth()
+                    .border(1.dp, PhosphorGreen, RoundedCornerShape(12.dp))
+                    .testTag("btn_action")
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.FlashOn,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(16.dp),
+                        tint = ImmersiveBackground
                     )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "V.A.T.S. [E]",
+                        text = "ACTION",
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Black,
                         fontSize = 12.sp
                     )
                 }
             }
 
-            Button(
-                onClick = onWaitTurn,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ImmersiveSurfaceVariant,
-                    contentColor = ImmersiveTeal
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .height(44.dp)
-                    .fillMaxWidth(0.95f)
-                    .testTag("btn_wait_turn")
+            // 2. Secondary Row: Inventory & Wait Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                // Inventory
+                Button(
+                    onClick = onOpenInventory,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ImmersiveSurfaceVariant,
+                        contentColor = ImmersiveTeal
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("btn_dpad_inventory")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.HourglassEmpty,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "WAIT [Z]",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Inventory2,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = "INV",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                // Wait Turn
+                Button(
+                    onClick = onWaitTurn,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ImmersiveSurfaceVariant,
+                        contentColor = AcidYellow
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("btn_wait_turn")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HourglassEmpty,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = "WAIT",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }
@@ -309,9 +359,9 @@ private fun DPadCell(
 ) {
     Box(
         modifier = Modifier
-            .size(36.dp)
+            .size(38.dp)
             .clip(shape)
-            .background(if (isDiagonal) ImmersiveSurfaceVariant.copy(alpha = 0.6f) else ImmersiveSurfaceVariant)
+            .background(if (isDiagonal) ImmersiveSurfaceVariant.copy(alpha = 0.5f) else ImmersiveSurfaceVariant)
             .border(
                 0.8.dp,
                 if (isDiagonal) tint.copy(alpha = 0.35f) else ImmersiveTeal.copy(alpha = 0.5f),

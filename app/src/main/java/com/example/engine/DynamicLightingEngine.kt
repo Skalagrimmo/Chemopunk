@@ -536,4 +536,11 @@ class DynamicLightingEngine {
             )
         }
     }
+
+    /**
+     * Creates a new dedicated LightMapBuffer instance tied to this lighting engine.
+     */
+    fun createLightMapBuffer(width: Int = 32, height: Int = 32): LightMapBuffer {
+        return LightMapBuffer(width = width, height = height, lightingEngine = this)
+    }
 }

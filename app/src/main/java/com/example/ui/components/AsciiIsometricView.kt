@@ -62,6 +62,7 @@ fun AsciiIsometricView(
     floatingTexts: List<FloatingText>,
     paletteIndex: Int,
     onTileTapped: (Int, Int) -> Unit,
+    onLongPress: (Float, Float, Int, Int) -> Unit = { _, _, _, _ -> },
     onDropFlare: () -> Unit = {},
     onRecenterCamera: () -> Unit = {},
     onClearSelection: () -> Unit = {},
@@ -98,25 +99,41 @@ fun AsciiIsometricView(
                 .pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         panOffsetX += pan.x
-                            panOffsetY += pan.y
+                        panOffsetY += pan.y
                         zoomLevel = (zoomLevel * zoom).coerceIn(0.6f, 2.2f)
                     }
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        val centerX = size.width * 0.5f + panOffsetX
-                        val centerY = size.height * 0.44f + panOffsetY
-                        val gridCoords = engine.screenToGrid(
-                            screenX = offset.x,
-                            screenY = offset.y,
-                            centerX = centerX,
-                            centerY = centerY,
-                            camX = player.x,
-                            camY = player.y,
-                            zoom = zoomLevel
-                        )
-                        onTileTapped(gridCoords.first, gridCoords.second)
-                    }
+                    detectTapGestures(
+                        onTap = { offset ->
+                            val centerX = size.width * 0.5f + panOffsetX
+                            val centerY = size.height * 0.44f + panOffsetY
+                            val gridCoords = engine.screenToGrid(
+                                screenX = offset.x,
+                                screenY = offset.y,
+                                centerX = centerX,
+                                centerY = centerY,
+                                camX = player.x,
+                                camY = player.y,
+                                zoom = zoomLevel
+                            )
+                            onTileTapped(gridCoords.first, gridCoords.second)
+                        },
+                        onLongPress = { offset ->
+                            val centerX = size.width * 0.5f + panOffsetX
+                            val centerY = size.height * 0.44f + panOffsetY
+                            val gridCoords = engine.screenToGrid(
+                                screenX = offset.x,
+                                screenY = offset.y,
+                                centerX = centerX,
+                                centerY = centerY,
+                                camX = player.x,
+                                camY = player.y,
+                                zoom = zoomLevel
+                            )
+                            onLongPress(offset.x, offset.y, gridCoords.first, gridCoords.second)
+                        }
+                    )
                 }
         ) {
             // Draw Isometric World via AsciiIsometricEngine with Dynamic Lighting

@@ -25,14 +25,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        gameViewModel.proceduralAudioManager.setMuted(true)
+        gameViewModel.proceduralAudioManager.pause()
     }
 
     override fun onResume() {
         super.onResume()
-        if (!gameViewModel.proceduralAudioManager.audioProfile.value.isMuted) {
-            gameViewModel.proceduralAudioManager.setMuted(false)
-        }
+        gameViewModel.proceduralAudioManager.resume()
     }
 }
 

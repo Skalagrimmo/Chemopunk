@@ -27,10 +27,12 @@ class GreetingScreenshotTest {
       MyApplicationTheme {
         HudOverlay(
           player = Player(),
+          audioProfile = com.example.engine.AmbientAudioProfile(),
           onOpenInventory = {},
           onOpenStoryNotes = {},
           onOpenMarkdownEditor = {},
-          onTogglePalette = {}
+          onTogglePalette = {},
+          onToggleAudioMute = {}
         )
       }
     }

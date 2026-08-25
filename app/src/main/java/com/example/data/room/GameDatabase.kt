@@ -8,15 +8,20 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         InventoryItemEntity::class,
-        CharacterProfileEntity::class
+        CharacterProfileEntity::class,
+        StoryScriptEntity::class,
+        NarrativeNodeEntity::class,
+        BranchingChoiceEntity::class,
+        NarrativeProgressEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class GameDatabase : RoomDatabase() {
 
     abstract fun inventoryDao(): InventoryDao
     abstract fun characterProfileDao(): CharacterProfileDao
+    abstract fun storyNarrativeDao(): StoryNarrativeDao
 
     companion object {
         @Volatile
@@ -29,7 +34,7 @@ abstract class GameDatabase : RoomDatabase() {
                     GameDatabase::class.java,
                     "chemopank_game_database.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance

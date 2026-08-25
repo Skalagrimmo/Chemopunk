@@ -52,8 +52,39 @@ data class Player(
     var y: Float = 1.5f,
     var angleDegrees: Float = 0f,
     var equippedWeapon: Item? = null,
-    var equippedArmor: Item? = null
+    var equippedArmor: Item? = null,
+    var statusEffects: List<StatusEffect> = emptyList()
 )
+
+enum class StatusEffectType(
+    val defaultName: String,
+    val glyph: String,
+    val defaultMagnitude: Int,
+    val colorHex: Long
+) {
+    POISON("Poison Sludge", "☣", 6, 0xFF10B981),
+    RADIATION("Radiation Sickness", "☢", 4, 0xFFFFB020),
+    STUN("Electromagnetic Stun", "⚡", 1, 0xFFF59E0B),
+    CORROSION("Acid Corrosion", "🧪", 5, 0xFFF97316),
+    ADRENALINE("Adrenaline Rush", "💉", 8, 0xFF38BDF8),
+    REGENERATION("Nano-Regen", "💖", 7, 0xFF4ADE80)
+}
+
+data class StatusEffect(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val type: StatusEffectType,
+    val name: String = type.defaultName,
+    val durationTurns: Int = 3,
+    val magnitude: Int = type.defaultMagnitude,
+    val description: String = "",
+    val iconGlyph: String = type.glyph
+) {
+    val isDebuff: Boolean
+        get() = type in listOf(StatusEffectType.POISON, StatusEffectType.RADIATION, StatusEffectType.STUN, StatusEffectType.CORROSION)
+
+    val isBuff: Boolean
+        get() = !isDebuff
+}
 
 enum class ItemType {
     CONSUMABLE,
@@ -101,7 +132,8 @@ data class Enemy(
     var currentWaypointIdx: Int = 0,
     var detectionRadius: Float = 4.0f,
     var fleeThreshold: Float = 0.30f,
-    var turnsInCurrentState: Int = 0
+    var turnsInCurrentState: Int = 0,
+    var statusEffects: List<StatusEffect> = emptyList()
 )
 
 data class Choice(
@@ -111,7 +143,12 @@ data class Choice(
     val toxicityCost: Int = 0,
     val hpReward: Int = 0,
     val creditsReward: Int = 0,
-    val actionTrigger: String? = null
+    val actionTrigger: String? = null,
+    val requiredMinLevel: Int = 0,
+    val requiredStoryFlag: String? = null,
+    val setStoryFlag: String? = null,
+    val rewardItemId: String? = null,
+    val failureTargetNodeId: String? = null
 )
 
 data class StoryNode(
@@ -122,7 +159,11 @@ data class StoryNode(
     val category: String = "STORY",
     val mood: String = "NORMAL",
     val choices: List<Choice> = emptyList(),
-    val rawMarkdown: String = ""
+    val rawMarkdown: String = "",
+    val bgAtmosphere: String = "SECTOR_7_LAB",
+    val soundEffectCue: String? = null,
+    val requiredStoryFlag: String? = null,
+    val isCheckpoint: Boolean = false
 )
 
 data class GameConfig(
@@ -192,3 +233,71 @@ data class CombatLogEntry(
         }
     }
 }
+
+/**
+ * Entity type in the Turn-Based Combat Queue.
+ */
+enum class CombatantType {
+    PLAYER,
+    ENEMY
+}
+
+/**
+ * Represents an active combatant participant in the tactical turn queue.
+ */
+data class CombatQueueEntity(
+    val id: String,
+    val name: String,
+    val glyph: String,
+    val type: CombatantType,
+    val hp: Int,
+    val maxHp: Int,
+    val initiative: Int, // Speed / Initiative value determining turn order
+    val stateLabel: String, // "PLAYER", "AGGRO", "PATROL", "FLEE"
+    val isCurrentTurn: Boolean = false,
+    val isAlive: Boolean = true,
+    val actionPoints: Int = 2,
+    val maxActionPoints: Int = 2,
+    val attackPower: Int = 10,
+    val defense: Int = 2,
+    val gridX: Float = 0f,
+    val gridY: Float = 0f,
+    val statusEffects: List<StatusEffect> = emptyList()
+) {
+    val isPlayer: Boolean get() = type == CombatantType.PLAYER
+    val hpRatio: Float get() = if (maxHp > 0) (hp.toFloat() / maxHp.toFloat()).coerceIn(0f, 1f) else 0f
+}
+
+/**
+ * State container for the Turn-Based Combat Queue System.
+ */
+data class TurnCombatQueueState(
+    val roundNumber: Int = 1,
+    val currentTurnIndex: Int = 0,
+    val combatants: List<CombatQueueEntity> = emptyList(),
+    val isCombatActive: Boolean = false,
+    val activeCombatantId: String? = null,
+    val turnPhase: TurnPhase = TurnPhase.PLAYER_INPUT
+) {
+    val activeCombatant: CombatQueueEntity?
+        get() = combatants.firstOrNull { it.id == activeCombatantId }
+            ?: combatants.getOrNull(currentTurnIndex)
+            ?: combatants.firstOrNull()
+
+    val isPlayerTurn: Boolean
+        get() = activeCombatant?.isPlayer == true
+
+    val nextCombatant: CombatQueueEntity?
+        get() {
+            if (combatants.isEmpty()) return null
+            val nextIdx = (currentTurnIndex + 1) % combatants.size
+            return combatants.getOrNull(nextIdx)
+        }
+}
+
+enum class TurnPhase {
+    PLAYER_INPUT,
+    NPC_ACTION,
+    ROUND_TRANSITION
+}
+

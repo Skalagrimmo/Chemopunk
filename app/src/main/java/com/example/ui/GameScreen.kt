@@ -2,71 +2,109 @@ package com.example.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.Enemy
+import com.example.data.StatusEffectType
+import com.example.ui.components.AsciiGlIsometricView
 import com.example.ui.components.AsciiIsometricView
 import com.example.ui.components.CombatModal
 import com.example.ui.components.ControlDPad
 import com.example.ui.components.HudOverlay
-import com.example.ui.components.InteractiveLogStream
 import com.example.ui.components.InventoryModal
 import com.example.ui.components.MarkdownEditorModal
+import com.example.ui.components.RadialQuickActionMenu
 import com.example.ui.components.StoryDialogueScreen
 import com.example.ui.components.StoryModal
+import com.example.ui.theme.AcidYellow
+import com.example.ui.theme.AmberTerminal
 import com.example.ui.theme.ImmersiveBackground
 import com.example.ui.theme.ImmersiveSurface
 import com.example.ui.theme.ImmersiveSurfaceVariant
 import com.example.ui.theme.ImmersiveTeal
 import com.example.ui.theme.ImmersiveText
 import com.example.ui.theme.ImmersiveTextMuted
+import com.example.ui.theme.PhosphorGreen
 import com.example.ui.theme.ToxicRed
 import com.example.viewmodel.ActiveModal
 import com.example.viewmodel.GameViewModel
 import com.example.viewmodel.ViewMode
 
+/**
+ * Smartphone-First Game Screen Layout.
+ * Layer architecture:
+ * 1. Top Cyberpunk HUD Header with status and quick tools.
+ * 2. Full-Screen 2.5D OpenGL ASCII Viewport with integrated zoom/flare controls.
+ * 3. Bottom Ergonomic Thumb Navigation Deck & Action Triggers.
+ * 4. Modal Overlays with backdrop scrims and safe padding.
+ */
 @Composable
 fun GameScreen(viewModel: GameViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    var useOpenGlRenderer by remember { mutableStateOf(true) }
+
+    var isRadialMenuOpen by remember { mutableStateOf(false) }
+    var radialTouchOffset by remember { mutableStateOf(Offset(200f, 300f)) }
+    var radialTargetTile by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var radialTargetEnemy by remember { mutableStateOf<Enemy?>(null) }
 
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
             .testTag("game_screen_root"),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = ImmersiveBackground
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top HUD Overlay (Tactical Terminal Header)
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // 1. Top HUD Overlay (Compact Smartphone Header)
                 HudOverlay(
                     player = uiState.player,
                     audioProfile = uiState.audioProfile,
@@ -77,41 +115,74 @@ fun GameScreen(viewModel: GameViewModel) {
                     onToggleAudioMute = { viewModel.toggleAudioMute() }
                 )
 
-                // Dedicated Fallout 1 & 2 Style 2.5D Isometric ASCII Renderer Viewport
+                // 2. Full-Height 2.5D Isometric ASCII Viewport
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(8.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(16.dp))
                         .border(1.dp, ImmersiveSurfaceVariant, RoundedCornerShape(16.dp))
-                        .background(ImmersiveBackground, RoundedCornerShape(16.dp))
+                        .background(ImmersiveBackground)
                 ) {
-                    AsciiIsometricView(
-                        mapGrid = uiState.mapGrid,
-                        player = uiState.player,
-                        enemies = uiState.activeEnemies,
-                        lightSources = uiState.lightSources,
-                        selectedTile = uiState.selectedTile,
-                        discoveredTiles = uiState.discoveredTiles,
-                        floatingTexts = uiState.floatingTexts,
-                        paletteIndex = uiState.colorPaletteIndex,
-                        onTileTapped = { gx, gy -> viewModel.handleTileTap(gx, gy) },
-                        onDropFlare = { viewModel.deployEmergencyFlare() },
-                        onRecenterCamera = {},
-                        onClearSelection = { viewModel.clearSelectedTile() },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    if (useOpenGlRenderer) {
+                        AsciiGlIsometricView(
+                            mapGrid = uiState.mapGrid,
+                            player = uiState.player,
+                            enemies = uiState.activeEnemies,
+                            lightSources = uiState.lightSources,
+                            selectedTile = uiState.selectedTile,
+                            discoveredTiles = uiState.discoveredTiles,
+                            floatingTexts = uiState.floatingTexts,
+                            paletteIndex = uiState.colorPaletteIndex,
+                            onTileTapped = { gx, gy -> viewModel.handleTileTap(gx, gy) },
+                            onLongPress = { sx, sy, gx, gy ->
+                                radialTouchOffset = Offset(sx, sy)
+                                radialTargetTile = Pair(gx, gy)
+                                radialTargetEnemy = uiState.activeEnemies.firstOrNull { it.isAlive && it.x.toInt() == gx && it.y.toInt() == gy }
+                                    ?: uiState.activeEnemies.filter { it.isAlive }.minByOrNull { e ->
+                                        val dx = e.x - uiState.player.x
+                                        val dy = e.y - uiState.player.y
+                                        dx * dx + dy * dy
+                                    }
+                                isRadialMenuOpen = true
+                            },
+                            onDropFlare = { viewModel.deployEmergencyFlare() },
+                            onRecenterCamera = {},
+                            onClearSelection = { viewModel.clearSelectedTile() },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        AsciiIsometricView(
+                            mapGrid = uiState.mapGrid,
+                            player = uiState.player,
+                            enemies = uiState.activeEnemies,
+                            lightSources = uiState.lightSources,
+                            selectedTile = uiState.selectedTile,
+                            discoveredTiles = uiState.discoveredTiles,
+                            floatingTexts = uiState.floatingTexts,
+                            paletteIndex = uiState.colorPaletteIndex,
+                            onTileTapped = { gx, gy -> viewModel.handleTileTap(gx, gy) },
+                            onLongPress = { sx, sy, gx, gy ->
+                                radialTouchOffset = Offset(sx, sy)
+                                radialTargetTile = Pair(gx, gy)
+                                radialTargetEnemy = uiState.activeEnemies.firstOrNull { it.isAlive && it.x.toInt() == gx && it.y.toInt() == gy }
+                                    ?: uiState.activeEnemies.filter { it.isAlive }.minByOrNull { e ->
+                                        val dx = e.x - uiState.player.x
+                                        val dy = e.y - uiState.player.y
+                                        dx * dx + dy * dy
+                                    }
+                                isRadialMenuOpen = true
+                            },
+                            onDropFlare = { viewModel.deployEmergencyFlare() },
+                            onRecenterCamera = {},
+                            onClearSelection = { viewModel.clearSelectedTile() },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
 
-                // Interactive Tactical Telemetry Log Stream (Categorized, Animated, Icon-driven)
-                InteractiveLogStream(
-                    logs = uiState.combatLogs,
-                    onOpenInventory = { viewModel.openModal(ActiveModal.INVENTORY) },
-                    onOpenStory = { viewModel.setViewMode(ViewMode.STORY_DIALOGUE) },
-                    modifier = Modifier.padding(bottom = 2.dp)
-                )
-
-                // Enhanced 8-Way Directional D-Pad with Isometric Grid Movement & V.A.T.S.
+                // 3. Ergonomic Smartphone Bottom Thumb Deck (8-Way D-Pad + Primary Actions)
                 ControlDPad(
                     onMoveNorth = { viewModel.movePlayerIsometric(0, -1) },
                     onMoveSouth = { viewModel.movePlayerIsometric(0, 1) },
@@ -121,20 +192,11 @@ fun GameScreen(viewModel: GameViewModel) {
                     onMoveNorthEast = { viewModel.movePlayerIsometric(1, -1) },
                     onMoveSouthWest = { viewModel.movePlayerIsometric(-1, 1) },
                     onMoveSouthEast = { viewModel.movePlayerIsometric(1, 1) },
-                    onActionVats = {
+                    onAction = {
                         val selected = uiState.selectedTile
                         if (selected != null) {
                             viewModel.handleTileTap(selected.first, selected.second)
                         } else {
-                            viewModel.handleTileTap(uiState.player.x.toInt(), uiState.player.y.toInt())
-                        }
-                    },
-                    onQuickAttack = {
-                        val selected = uiState.selectedTile
-                        if (selected != null) {
-                            viewModel.handleTileTap(selected.first, selected.second)
-                        } else {
-                            // Find closest enemy within range
                             val targetEnemy = uiState.activeEnemies.minByOrNull { e ->
                                 val dx = e.x - uiState.player.x
                                 val dy = e.y - uiState.player.y
@@ -147,11 +209,39 @@ fun GameScreen(viewModel: GameViewModel) {
                             }
                         }
                     },
+                    onOpenInventory = { viewModel.openModal(ActiveModal.INVENTORY) },
                     onWaitTurn = { viewModel.waitTurn() }
                 )
             }
 
-            // Story / Dialogue Modal with Rich AST Markdown Narrative Renderer
+            // Radial Context Quick-Action Menu (Long-Press Gesture Overlay)
+            RadialQuickActionMenu(
+                visible = isRadialMenuOpen,
+                touchPosition = radialTouchOffset,
+                targetTile = radialTargetTile,
+                targetedEnemy = radialTargetEnemy ?: uiState.activeCombatEnemy,
+                player = uiState.player,
+                onDismiss = { isRadialMenuOpen = false },
+                onAttack = {
+                    val enemy = radialTargetEnemy ?: uiState.activeCombatEnemy
+                    if (enemy != null) {
+                        viewModel.handleTileTap(enemy.x.toInt(), enemy.y.toInt())
+                        viewModel.attackCombatEnemy()
+                    } else {
+                        viewModel.attackCombatEnemy()
+                    }
+                },
+                onDeployFlare = { viewModel.deployEmergencyFlare() },
+                onUseAdrenaline = { viewModel.useCombatChemEffect(StatusEffectType.ADRENALINE) },
+                onUseNanoRegen = { viewModel.useCombatChemEffect(StatusEffectType.REGENERATION) },
+                onUseShockGrenade = { viewModel.useCombatChemEffect(StatusEffectType.STUN) },
+                onUseAcidFlask = { viewModel.useCombatChemEffect(StatusEffectType.CORROSION) },
+                onUseNeurotoxin = { viewModel.useCombatChemEffect(StatusEffectType.POISON) },
+                onWaitTurn = { viewModel.waitTurn() },
+                onOpenInventory = { viewModel.openModal(ActiveModal.INVENTORY) }
+            )
+
+            // Story / Dialogue Screen (AST Markdown Renderer)
             if (uiState.currentViewMode == ViewMode.STORY_DIALOGUE) {
                 val currentDoc = uiState.currentStoryDocument
                     ?: com.example.data.narrative.MarkdownNarrativeParser.parseNarrativeDocument(
@@ -179,7 +269,7 @@ fun GameScreen(viewModel: GameViewModel) {
                 )
             }
 
-            // Active Modals
+            // Active Modals (Optimized for Mobile)
             when (uiState.activeModal) {
                 ActiveModal.INVENTORY -> {
                     InventoryModal(
@@ -192,6 +282,8 @@ fun GameScreen(viewModel: GameViewModel) {
                         onUseItem = { itemId -> viewModel.useOrConsumeItem(itemId) },
                         onRepairItem = { itemId -> viewModel.repairInventoryItem(itemId) },
                         onScrapItem = { itemId -> viewModel.scrapInventoryItem(itemId) },
+                        onCraftRecipe = { recipe -> viewModel.craftWastelandRecipe(recipe) },
+                        onUpgradeItem = { itemId -> viewModel.upgradeInventoryItem(itemId) },
                         onCraftSampleItem = { name, type, dmg, def, heal, tox ->
                             viewModel.craftOrAddCustomItem(name, type, dmg, def, heal, tox)
                         },
@@ -205,7 +297,13 @@ fun GameScreen(viewModel: GameViewModel) {
                             playerHp = uiState.player.hp,
                             playerMaxHp = uiState.player.maxHp,
                             playerToxicity = uiState.player.toxicity,
+                            playerStatusEffects = uiState.player.statusEffects,
+                            queueState = uiState.turnQueueState,
                             onAttack = { viewModel.attackCombatEnemy() },
+                            onDefend = { viewModel.defendCombatTurn() },
+                            onUseStimpack = { viewModel.useCombatStimpack() },
+                            onUseChemEffect = { effectType -> viewModel.useCombatChemEffect(effectType) },
+                            onFlee = { viewModel.fleeCombat() },
                             onClose = { viewModel.closeModal() }
                         )
                     }
@@ -219,7 +317,7 @@ fun GameScreen(viewModel: GameViewModel) {
                     modifier = Modifier
                         .fillMaxSize()
                         .background(ImmersiveBackground.copy(alpha = 0.95f))
-                        .padding(24.dp),
+                        .padding(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Card(
@@ -234,30 +332,30 @@ fun GameScreen(viewModel: GameViewModel) {
                         shape = RoundedCornerShape(20.dp)
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
+                            modifier = Modifier.padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = if (uiState.isVictory) "SECTOR 7 ESCAPED!" else "SIGNAL LOST - TOXICITY FATALITY",
+                                text = if (uiState.isVictory) "SECTOR 7 PURGED & ESCAPED!" else "SIGNAL LOST - BIO-SUIT RUPTURE",
                                 color = if (uiState.isVictory) ImmersiveTeal else ToxicRed,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                fontSize = 15.sp
                             )
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             Text(
                                 text = if (uiState.isVictory)
-                                    "You successfully reached the Extraction Lift and purged local mutagens!"
+                                    "You reached the extraction lift and successfully purged local mutagens."
                                 else
-                                    "Your bio-suit ruptured in the chemical wasteland. Reboot vital functions to retry.",
+                                    "Your bio-suit collapsed under mutagenic pressure. Reboot system to retry.",
                                 color = ImmersiveTextMuted,
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = 13.sp
+                                fontSize = 12.sp
                             )
 
-                            Spacer(modifier = Modifier.height(24.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
 
                             Button(
                                 onClick = { viewModel.restartGame() },
@@ -268,13 +366,14 @@ fun GameScreen(viewModel: GameViewModel) {
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(48.dp)
+                                    .height(46.dp)
                                     .testTag("btn_restart_game")
                             ) {
                                 Text(
                                     text = "REBOOT SYSTEM (RESTART)",
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
                                 )
                             }
                         }

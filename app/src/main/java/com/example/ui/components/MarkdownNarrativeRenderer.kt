@@ -39,7 +39,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -414,6 +414,77 @@ fun StoryNodeHeader(node: StoryNode) {
                 )
             }
         }
+
+        // Atmosphere / SFX / Checkpoint Badges
+        if (node.bgAtmosphere.isNotEmpty() || node.soundEffectCue != null || node.isCheckpoint || node.requiredStoryFlag != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (node.isCheckpoint) {
+                    Box(
+                        modifier = Modifier
+                            .background(PhosphorGreen.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                            .border(0.8.dp, PhosphorGreen, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "★ CHECKPOINT",
+                            color = PhosphorGreen,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (node.bgAtmosphere.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .background(ImmersiveTeal.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "ATMOSPHERE: ${node.bgAtmosphere}",
+                            color = ImmersiveTeal,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 8.sp
+                        )
+                    }
+                }
+
+                if (node.soundEffectCue != null) {
+                    Box(
+                        modifier = Modifier
+                            .background(AmberTerminal.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "SFX: ${node.soundEffectCue}",
+                            color = AmberTerminal,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 8.sp
+                        )
+                    }
+                }
+
+                if (node.requiredStoryFlag != null) {
+                    Box(
+                        modifier = Modifier
+                            .background(ToxicRed.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "FLAG: ${node.requiredStoryFlag}",
+                            color = ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 8.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -623,7 +694,7 @@ fun RenderMarkdownBlock(
                             )
                         }
                     }
-                    Divider(color = ImmersiveSurfaceVariant, thickness = 1.dp)
+                    HorizontalDivider(color = ImmersiveSurfaceVariant, thickness = 1.dp)
                     // Table Data Rows
                     block.rows.forEachIndexed { idx, row ->
                         Row(
@@ -660,7 +731,7 @@ fun RenderMarkdownBlock(
         }
 
         MarkdownBlock.HorizontalRule -> {
-            Divider(
+            HorizontalDivider(
                 color = ImmersiveSurfaceVariant,
                 thickness = 1.dp,
                 modifier = modifier.padding(vertical = 6.dp)
@@ -744,6 +815,42 @@ fun ChoiceCard(
                         }
                     }
 
+                    if (choice.hpReward != 0) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (choice.hpReward > 0) PhosphorGreen.copy(alpha = 0.2f)
+                                    else ToxicRed.copy(alpha = 0.2f),
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (choice.hpReward > 0) "+${choice.hpReward} HP" else "${choice.hpReward} HP",
+                                color = if (choice.hpReward > 0) PhosphorGreen else ToxicRed,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (choice.creditsReward != 0) {
+                        Box(
+                            modifier = Modifier
+                                .background(AmberTerminal.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (choice.creditsReward > 0) "+${choice.creditsReward} CR" else "${choice.creditsReward} CR",
+                                color = AmberTerminal,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
                     if (choice.requiredItemId != null) {
                         Box(
                             modifier = Modifier
@@ -757,6 +864,22 @@ fun ChoiceCard(
                             Text(
                                 text = if (hasRequirement) "REQ: ${choice.requiredItemId}" else "LOCKED: ${choice.requiredItemId}",
                                 color = if (hasRequirement) ImmersiveAccentOrange else ToxicRed,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (choice.actionTrigger != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(ImmersiveTeal.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "⚡ ${choice.actionTrigger}",
+                                color = ImmersiveTeal,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold

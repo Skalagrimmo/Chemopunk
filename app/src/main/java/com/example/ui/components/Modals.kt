@@ -2,6 +2,8 @@ package com.example.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -168,19 +170,46 @@ fun InventoryModal(
     onUseItem: (String) -> Unit,
     onRepairItem: (String) -> Unit,
     onScrapItem: (String) -> Unit,
+    onCraftRecipe: (com.example.data.room.CraftingRecipe) -> Unit,
+    onUpgradeItem: (String) -> Unit,
     onCraftSampleItem: (name: String, type: String, dmg: Int, def: Int, heal: Int, tox: Int) -> Unit,
     onClose: () -> Unit
 ) {
+    var activeSubView by remember { mutableStateOf("GEAR") } // GEAR, CRAFT, UPGRADE
     var selectedCategory by remember { mutableStateOf("ALL") }
-    var showCraftDialog by remember { mutableStateOf(false) }
+    var selectedCraftCategory by remember { mutableStateOf<com.example.data.room.CraftingCategory?>(null) }
+    var showCustomCraftDialog by remember { mutableStateOf(false) }
+
+    // Material quantities extracted from Room DB
+    val scrapCount = remember(roomInventory) {
+        roomInventory.firstOrNull { it.itemId == com.example.data.room.CraftingMaterials.SCRAP_METAL }?.quantity ?: 0
+    }
+    val chemCount = remember(roomInventory) {
+        roomInventory.firstOrNull { it.itemId == com.example.data.room.CraftingMaterials.CHEM_REAGENT }?.quantity ?: 0
+    }
+    val biogelCount = remember(roomInventory) {
+        roomInventory.firstOrNull { it.itemId == com.example.data.room.CraftingMaterials.BIOGEL_VIAL }?.quantity ?: 0
+    }
+    val circuitCount = remember(roomInventory) {
+        roomInventory.firstOrNull { it.itemId == com.example.data.room.CraftingMaterials.MICRO_CIRCUIT }?.quantity ?: 0
+    }
 
     val filteredItems = remember(roomInventory, selectedCategory) {
         when (selectedCategory) {
             "WEAPON" -> roomInventory.filter { it.type == "WEAPON" || it.equipSlot == "WEAPON" }
             "ARMOR" -> roomInventory.filter { it.type == "ARMOR" || it.equipSlot == "ARMOR" }
             "MEDICAL" -> roomInventory.filter { it.type == "CONSUMABLE" }
+            "MATERIALS" -> roomInventory.filter { it.type == "MATERIAL" || it.itemId.startsWith("mat_") }
             "CYBERWARE" -> roomInventory.filter { it.type == "NEURAL_CHIP" || it.equipSlot == "NEURAL_CHIP" || it.type == "KEY_ITEM" }
             else -> roomInventory
+        }
+    }
+
+    val filteredRecipes = remember(selectedCraftCategory) {
+        if (selectedCraftCategory == null) {
+            com.example.data.room.WastelandRecipes.ALL_RECIPES
+        } else {
+            com.example.data.room.WastelandRecipes.ALL_RECIPES.filter { it.category == selectedCraftCategory }
         }
     }
 
@@ -188,19 +217,19 @@ fun InventoryModal(
         modifier = Modifier
             .fillMaxSize()
             .background(ImmersiveBackground.copy(alpha = 0.96f))
-            .padding(12.dp),
+            .padding(10.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.98f)
-                .fillMaxHeight(0.92f)
+                .fillMaxHeight(0.94f)
                 .border(1.5.dp, ImmersiveTeal, RoundedCornerShape(20.dp)),
             colors = CardDefaults.cardColors(containerColor = ImmersiveSurface),
             shape = RoundedCornerShape(20.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                // Header Row
+            Column(modifier = Modifier.padding(14.dp)) {
+                // Top Header Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -208,14 +237,14 @@ fun InventoryModal(
                 ) {
                     Column {
                         Text(
-                            text = "CYBERNETIC RIG & ROOM INVENTORY",
+                            text = "CYBERNETIC RIG & FIELD WORKBENCH",
                             color = ImmersiveTeal,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         )
                         Text(
-                            text = "ROOM DB PERSISTED • SECURE LOCAL STORAGE",
+                            text = "ROOM DB PERSISTED • CHEMICAL & SCRAP FABRICATION",
                             color = ImmersiveTextMuted,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 10.sp
@@ -226,134 +255,93 @@ fun InventoryModal(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Equipment Paperdoll Overview
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, ImmersiveSurfaceVariant, RoundedCornerShape(14.dp)),
-                    colors = CardDefaults.cardColors(containerColor = ImmersiveBackground),
-                    shape = RoundedCornerShape(14.dp)
+                // Primary Sub-Mode Selector (GEAR, CRAFT, UPGRADE)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Text(
-                            text = "EQUIPPED HARDWARE SLOTS",
-                            color = ImmersiveAccentOrange,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
+                    val tabs = listOf(
+                        Triple("GEAR", "🎒 RIG & GEAR", "tab_mode_gear"),
+                        Triple("CRAFT", "⚙️ FABRICATOR", "tab_mode_craft"),
+                        Triple("UPGRADE", "⚡ OVERCLOCK BAY", "tab_mode_upgrade")
+                    )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Weapon Slot
-                            EquipmentSlotCard(
-                                title = "WEAPON",
-                                item = gearStats.activeWeapon,
-                                modifier = Modifier.weight(1f),
-                                onUnequip = { gearStats.activeWeapon?.let { onUnequipItem(it.itemId) } }
-                            )
-
-                            // Armor Slot
-                            EquipmentSlotCard(
-                                title = "EXOSUIT",
-                                item = gearStats.activeArmor,
-                                modifier = Modifier.weight(1f),
-                                onUnequip = { gearStats.activeArmor?.let { onUnequipItem(it.itemId) } }
-                            )
-
-                            // Cyber-Chip Slot
-                            EquipmentSlotCard(
-                                title = "CYBER-CHIP",
-                                item = gearStats.activeChip,
-                                modifier = Modifier.weight(1f),
-                                onUnequip = { gearStats.activeChip?.let { onUnequipItem(it.itemId) } }
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Stats & Weight summary bar
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    tabs.forEach { (mode, label, tag) ->
+                        val isSelected = activeSubView == mode
+                        Button(
+                            onClick = { activeSubView = mode },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp)
+                                .testTag(tag),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isSelected) ImmersiveAccentOrange else ImmersiveSurfaceVariant,
+                                contentColor = if (isSelected) ImmersiveBackground else ImmersiveTextMuted
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
                         ) {
                             Text(
-                                text = "DMG: +${gearStats.totalWeaponDamage + (gearStats.activeChip?.damage ?: 0)} | DEF: +${gearStats.totalArmorDefense + (gearStats.activeChip?.defense ?: 0)}",
-                                color = AcidYellow,
+                                text = label,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = "WEIGHT: ${String.format("%.1f", gearStats.totalWeightKg)} / ${maxCarryWeight} kg",
-                                color = if (gearStats.totalWeightKg > maxCarryWeight) ToxicRed else PhosphorGreen,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = "CREDITS: $playerCredits CR",
-                                color = ImmersiveAccentOrange,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp
+                                fontSize = 10.5.sp
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Filter Tabs & Craft Button Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // Persistent Resource & Materials Counter Bar
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, ImmersiveSurfaceVariant, RoundedCornerShape(10.dp)),
+                    colors = CardDefaults.cardColors(containerColor = ImmersiveBackground),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("ALL", "WEAPON", "ARMOR", "MEDICAL", "CYBERWARE").forEach { cat ->
-                            val isSelected = selectedCategory == cat
-                            Button(
-                                onClick = { selectedCategory = cat },
-                                modifier = Modifier
-                                    .height(30.dp)
-                                    .testTag("tab_inv_$cat"),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) ImmersiveTeal else ImmersiveSurfaceVariant,
-                                    contentColor = if (isSelected) ImmersiveBackground else ImmersiveTextMuted
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                            ) {
-                                Text(
-                                    text = cat,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-                    }
-
-                    Button(
-                        onClick = { showCraftDialog = true },
+                    Row(
                         modifier = Modifier
-                            .height(30.dp)
-                            .testTag("btn_craft_gear"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ImmersiveAccentOrange,
-                            contentColor = ImmersiveBackground
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "+ CRAFT",
+                            text = "🔩 Scrap: $scrapCount",
+                            color = PhosphorGreen,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                        Text(
+                            text = "🧪 Chems: $chemCount",
+                            color = AcidYellow,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                        Text(
+                            text = "🧬 Bio-Gel: $biogelCount",
+                            color = ImmersiveTeal,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                        Text(
+                            text = "💽 Circuits: $circuitCount",
+                            color = androidx.compose.ui.graphics.Color(0xFFA855F7),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                        Text(
+                            text = "🪙 $playerCredits CR",
+                            color = ImmersiveAccentOrange,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp
@@ -363,47 +351,705 @@ fun InventoryModal(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // List of Room Items
-                if (filteredItems.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "NO ITEMS FOUND IN THIS CATEGORY",
-                            color = ImmersiveTextMuted,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp
+                // Active View Body
+                when (activeSubView) {
+                    "GEAR" -> {
+                        GearInventoryView(
+                            filteredItems = filteredItems,
+                            gearStats = gearStats,
+                            maxCarryWeight = maxCarryWeight,
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = { selectedCategory = it },
+                            onEquipItem = onEquipItem,
+                            onUnequipItem = onUnequipItem,
+                            onUseItem = onUseItem,
+                            onRepairItem = onRepairItem,
+                            onScrapItem = onScrapItem,
+                            onOpenCraftTab = { activeSubView = "CRAFT" }
                         )
                     }
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(filteredItems, key = { it.itemId }) { item ->
-                            RoomItemCard(
-                                item = item,
-                                onEquip = { onEquipItem(item.itemId) },
-                                onUnequip = { onUnequipItem(item.itemId) },
-                                onUse = { onUseItem(item.itemId) },
-                                onRepair = { onRepairItem(item.itemId) },
-                                onScrap = { onScrapItem(item.itemId) }
-                            )
-                        }
+                    "CRAFT" -> {
+                        CraftingWorkbenchView(
+                            recipes = filteredRecipes,
+                            scrapCount = scrapCount,
+                            chemCount = chemCount,
+                            biogelCount = biogelCount,
+                            circuitCount = circuitCount,
+                            selectedCategory = selectedCraftCategory,
+                            onSelectCategory = { selectedCraftCategory = it },
+                            onCraftRecipe = onCraftRecipe,
+                            onOpenCustomCraft = { showCustomCraftDialog = true }
+                        )
+                    }
+                    "UPGRADE" -> {
+                        EquipmentUpgradeBayView(
+                            roomInventory = roomInventory,
+                            scrapCount = scrapCount,
+                            chemCount = chemCount,
+                            playerCredits = playerCredits,
+                            onUpgradeItem = onUpgradeItem
+                        )
                     }
                 }
             }
         }
     }
 
-    if (showCraftDialog) {
+    if (showCustomCraftDialog) {
         CraftItemDialog(
+            scrapAvailable = scrapCount,
+            chemAvailable = chemCount,
             onCraft = { name, type, dmg, def, heal, tox ->
                 onCraftSampleItem(name, type, dmg, def, heal, tox)
-                showCraftDialog = false
+                showCustomCraftDialog = false
             },
-            onDismiss = { showCraftDialog = false }
+            onDismiss = { showCustomCraftDialog = false }
         )
+    }
+}
+
+@Composable
+private fun GearInventoryView(
+    filteredItems: List<com.example.data.room.InventoryItemEntity>,
+    gearStats: com.example.data.room.GearCombatStats,
+    maxCarryWeight: Float,
+    selectedCategory: String,
+    onSelectCategory: (String) -> Unit,
+    onEquipItem: (String) -> Unit,
+    onUnequipItem: (String) -> Unit,
+    onUseItem: (String) -> Unit,
+    onRepairItem: (String) -> Unit,
+    onScrapItem: (String) -> Unit,
+    onOpenCraftTab: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Equipment Paperdoll Overview
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, ImmersiveSurfaceVariant, RoundedCornerShape(12.dp)),
+            colors = CardDefaults.cardColors(containerColor = ImmersiveBackground),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                Text(
+                    text = "EQUIPPED HARDWARE SLOTS",
+                    color = ImmersiveAccentOrange,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    EquipmentSlotCard(
+                        title = "WEAPON",
+                        item = gearStats.activeWeapon,
+                        modifier = Modifier.weight(1f),
+                        onUnequip = { gearStats.activeWeapon?.let { onUnequipItem(it.itemId) } }
+                    )
+                    EquipmentSlotCard(
+                        title = "EXOSUIT",
+                        item = gearStats.activeArmor,
+                        modifier = Modifier.weight(1f),
+                        onUnequip = { gearStats.activeArmor?.let { onUnequipItem(it.itemId) } }
+                    )
+                    EquipmentSlotCard(
+                        title = "CYBER-CHIP",
+                        item = gearStats.activeChip,
+                        modifier = Modifier.weight(1f),
+                        onUnequip = { gearStats.activeChip?.let { onUnequipItem(it.itemId) } }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Stats & Weight summary bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "DMG: +${gearStats.totalWeaponDamage + (gearStats.activeChip?.damage ?: 0)} | DEF: +${gearStats.totalArmorDefense + (gearStats.activeChip?.defense ?: 0)}",
+                        color = AcidYellow,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp
+                    )
+                    Text(
+                        text = "WEIGHT: ${String.format("%.1f", gearStats.totalWeightKg)} / ${maxCarryWeight} kg",
+                        color = if (gearStats.totalWeightKg > maxCarryWeight) ToxicRed else PhosphorGreen,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Filter Category Tabs
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                listOf("ALL", "WEAPON", "ARMOR", "MEDICAL", "MATERIALS", "CYBERWARE").forEach { cat ->
+                    val isSelected = selectedCategory == cat
+                    Button(
+                        onClick = { onSelectCategory(cat) },
+                        modifier = Modifier
+                            .height(28.dp)
+                            .testTag("tab_inv_$cat"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) ImmersiveTeal else ImmersiveSurfaceVariant,
+                            contentColor = if (isSelected) ImmersiveBackground else ImmersiveTextMuted
+                        ),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            text = cat,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = onOpenCraftTab,
+                modifier = Modifier
+                    .height(28.dp)
+                    .testTag("btn_craft_gear"),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImmersiveAccentOrange,
+                    contentColor = ImmersiveBackground
+                ),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            ) {
+                Text(
+                    text = "⚙️ CRAFT",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.5.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Items List
+        if (filteredItems.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "NO ITEMS FOUND IN THIS CATEGORY",
+                    color = ImmersiveTextMuted,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(filteredItems, key = { it.itemId }) { item ->
+                    RoomItemCard(
+                        item = item,
+                        onEquip = { onEquipItem(item.itemId) },
+                        onUnequip = { onUnequipItem(item.itemId) },
+                        onUse = { onUseItem(item.itemId) },
+                        onRepair = { onRepairItem(item.itemId) },
+                        onScrap = { onScrapItem(item.itemId) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CraftingWorkbenchView(
+    recipes: List<com.example.data.room.CraftingRecipe>,
+    scrapCount: Int,
+    chemCount: Int,
+    biogelCount: Int,
+    circuitCount: Int,
+    selectedCategory: com.example.data.room.CraftingCategory?,
+    onSelectCategory: (com.example.data.room.CraftingCategory?) -> Unit,
+    onCraftRecipe: (com.example.data.room.CraftingRecipe) -> Unit,
+    onOpenCustomCraft: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Recipe Category Filter Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                val allSelected = selectedCategory == null
+                Button(
+                    onClick = { onSelectCategory(null) },
+                    modifier = Modifier
+                        .height(28.dp)
+                        .testTag("tab_craft_all"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (allSelected) ImmersiveAccentOrange else ImmersiveSurfaceVariant,
+                        contentColor = if (allSelected) ImmersiveBackground else ImmersiveTextMuted
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) {
+                    Text("ALL", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                }
+
+                com.example.data.room.CraftingCategory.values().forEach { cat ->
+                    val isSelected = selectedCategory == cat
+                    Button(
+                        onClick = { onSelectCategory(cat) },
+                        modifier = Modifier
+                            .height(28.dp)
+                            .testTag("tab_craft_${cat.name}"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) ImmersiveAccentOrange else ImmersiveSurfaceVariant,
+                            contentColor = if (isSelected) ImmersiveBackground else ImmersiveTextMuted
+                        ),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                    ) {
+                        Text(cat.label, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Button(
+                onClick = onOpenCustomCraft,
+                modifier = Modifier
+                    .height(28.dp)
+                    .testTag("btn_custom_craft_dialog"),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ImmersiveTeal,
+                    contentColor = ImmersiveBackground
+                ),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+            ) {
+                Text("+ CUSTOM", fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Recipe Cards List
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(recipes, key = { it.recipeId }) { recipe ->
+                CraftingRecipeCard(
+                    recipe = recipe,
+                    scrapAvailable = scrapCount,
+                    chemAvailable = chemCount,
+                    biogelAvailable = biogelCount,
+                    circuitAvailable = circuitCount,
+                    onCraft = { onCraftRecipe(recipe) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CraftingRecipeCard(
+    recipe: com.example.data.room.CraftingRecipe,
+    scrapAvailable: Int,
+    chemAvailable: Int,
+    biogelAvailable: Int,
+    circuitAvailable: Int,
+    onCraft: () -> Unit
+) {
+    val canAfford = scrapAvailable >= recipe.scrapMetalCost &&
+            chemAvailable >= recipe.chemReagentCost &&
+            biogelAvailable >= recipe.biogelCost &&
+            circuitAvailable >= recipe.microCircuitCost
+
+    val rarityColor = when (recipe.resultRarity) {
+        com.example.data.room.ItemRarity.LEGENDARY -> androidx.compose.ui.graphics.Color(0xFFFFD700)
+        com.example.data.room.ItemRarity.EPIC -> androidx.compose.ui.graphics.Color(0xFFA855F7)
+        com.example.data.room.ItemRarity.RARE -> androidx.compose.ui.graphics.Color(0xFF38BDF8)
+        com.example.data.room.ItemRarity.UNCOMMON -> androidx.compose.ui.graphics.Color(0xFF22C55E)
+        else -> androidx.compose.ui.graphics.Color(0xFF94A3B8)
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (canAfford) ImmersiveAccentOrange.copy(alpha = 0.8f) else ImmersiveSurfaceVariant,
+                RoundedCornerShape(12.dp)
+            ),
+        colors = CardDefaults.cardColors(containerColor = ImmersiveBackground),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            // Recipe Title & Badges
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = recipe.name,
+                    color = ImmersiveText,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.5.sp
+                )
+
+                Box(
+                    modifier = Modifier
+                        .background(rarityColor.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                        .border(0.8.dp, rarityColor, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = recipe.resultRarity.name,
+                        color = rarityColor,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 8.5.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            Text(
+                text = recipe.resultDescription,
+                color = ImmersiveTextMuted,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.5.sp,
+                lineHeight = 13.sp
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Outcome Stats Preview
+            val statsPreview = buildString {
+                if (recipe.damage > 0) append("+${recipe.damage} DMG  ")
+                if (recipe.defense > 0) append("+${recipe.defense} DEF  ")
+                if (recipe.healHp > 0) append("+${recipe.healHp} HP  ")
+                if (recipe.reduceToxicity > 0) append("-${recipe.reduceToxicity}% TOX  ")
+                if (recipe.criticalBonus > 0f) append("+${(recipe.criticalBonus * 100).toInt()}% CRIT  ")
+                append("${recipe.weightKg}kg")
+            }
+
+            Text(
+                text = statsPreview,
+                color = PhosphorGreen,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Materials Cost Checklist & Action Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (recipe.scrapMetalCost > 0) {
+                        val hasScrap = scrapAvailable >= recipe.scrapMetalCost
+                        Text(
+                            text = "🔩 $scrapAvailable/${recipe.scrapMetalCost}",
+                            color = if (hasScrap) PhosphorGreen else ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                    if (recipe.chemReagentCost > 0) {
+                        val hasChem = chemAvailable >= recipe.chemReagentCost
+                        Text(
+                            text = "🧪 $chemAvailable/${recipe.chemReagentCost}",
+                            color = if (hasChem) PhosphorGreen else ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                    if (recipe.biogelCost > 0) {
+                        val hasBio = biogelAvailable >= recipe.biogelCost
+                        Text(
+                            text = "🧬 $biogelAvailable/${recipe.biogelCost}",
+                            color = if (hasBio) PhosphorGreen else ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                    if (recipe.microCircuitCost > 0) {
+                        val hasCirc = circuitAvailable >= recipe.microCircuitCost
+                        Text(
+                            text = "💽 $circuitAvailable/${recipe.microCircuitCost}",
+                            color = if (hasCirc) PhosphorGreen else ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onCraft,
+                    enabled = canAfford,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ImmersiveAccentOrange,
+                        contentColor = ImmersiveBackground,
+                        disabledContainerColor = ImmersiveSurfaceVariant,
+                        disabledContentColor = ImmersiveTextMuted
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .height(28.dp)
+                        .testTag("btn_craft_${recipe.recipeId}"),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        text = if (canAfford) "FABRICATE" else "LOCKED",
+                        fontSize = 9.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EquipmentUpgradeBayView(
+    roomInventory: List<com.example.data.room.InventoryItemEntity>,
+    scrapCount: Int,
+    chemCount: Int,
+    playerCredits: Int,
+    onUpgradeItem: (String) -> Unit
+) {
+    val upgradableItems = remember(roomInventory) {
+        roomInventory.filter { it.type == "WEAPON" || it.type == "ARMOR" || it.type == "NEURAL_CHIP" }
+    }
+
+    var selectedItemId by remember { mutableStateOf(upgradableItems.firstOrNull()?.itemId) }
+    val selectedItem = upgradableItems.firstOrNull { it.itemId == selectedItemId } ?: upgradableItems.firstOrNull()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = "SELECT EQUIPMENT TO OVERCLOCK / UPGRADE",
+            color = ImmersiveAccentOrange,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        if (upgradableItems.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "NO UPGRADABLE WEAPONS OR ARMOR FOUND IN INVENTORY",
+                    color = ImmersiveTextMuted,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+            }
+        } else {
+            // Horizontal selector of upgradable items
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                upgradableItems.take(4).forEach { item ->
+                    val isSelected = (selectedItem?.itemId == item.itemId)
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(
+                                1.dp,
+                                if (isSelected) ImmersiveTeal else ImmersiveSurfaceVariant,
+                                RoundedCornerShape(8.dp)
+                            ),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) ImmersiveTeal.copy(alpha = 0.15f) else ImmersiveBackground
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        onClick = { selectedItemId = item.itemId }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = item.name,
+                                color = if (isSelected) ImmersiveText else ImmersiveTextMuted,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "Lvl ${item.techLevel}",
+                                color = ImmersiveAccentOrange,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 8.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Selected Item Upgrade Blueprint
+            selectedItem?.let { item ->
+                val cost = com.example.data.room.UpgradeEngine.calculateUpgrade(item)
+                val canUpgrade = scrapCount >= cost.scrapCost &&
+                        chemCount >= cost.chemCost &&
+                        playerCredits >= cost.creditCost
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.5.dp, ImmersiveTeal, RoundedCornerShape(14.dp)),
+                    colors = CardDefaults.cardColors(containerColor = ImmersiveBackground),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = item.name,
+                                color = ImmersiveText,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "TECH LEVEL: ${item.techLevel} ➔ ${cost.nextTechLevel}",
+                                color = ImmersiveAccentOrange,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Current vs Upgraded Comparison
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("CURRENT SPEC", color = ImmersiveTextMuted, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                if (item.damage > 0) Text("Damage: ${item.damage}", color = PhosphorGreen, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                if (item.defense > 0) Text("Defense: ${item.defense}", color = PhosphorGreen, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                Text("Max Durability: ${item.maxDurability}", color = ImmersiveTextMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("OVERCLOCKED SPEC", color = ImmersiveAccentOrange, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                if (cost.nextDamage > 0) Text("Damage: ${cost.nextDamage} (+6)", color = AcidYellow, fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                if (cost.nextDefense > 0) Text("Defense: ${cost.nextDefense} (+5)", color = AcidYellow, fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                Text("Max Durability: ${cost.nextMaxDurability} (+15)", color = AcidYellow, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Upgrade Resource Cost Checklist
+                        Text("REQUIRED REAGENTS & COMPONENTS:", color = ImmersiveTextMuted, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "🔩 Scrap: $scrapCount/${cost.scrapCost}",
+                                color = if (scrapCount >= cost.scrapCost) PhosphorGreen else ToxicRed,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp
+                            )
+                            Text(
+                                text = "🧪 Chems: $chemCount/${cost.chemCost}",
+                                color = if (chemCount >= cost.chemCost) PhosphorGreen else ToxicRed,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp
+                            )
+                            Text(
+                                text = "🪙 $playerCredits/${cost.creditCost} CR",
+                                color = if (playerCredits >= cost.creditCost) PhosphorGreen else ToxicRed,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Button(
+                            onClick = { onUpgradeItem(item.itemId) },
+                            enabled = canUpgrade,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ImmersiveTeal,
+                                contentColor = ImmersiveBackground,
+                                disabledContainerColor = ImmersiveSurfaceVariant,
+                                disabledContentColor = ImmersiveTextMuted
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp)
+                                .testTag("btn_upgrade_selected_item")
+                        ) {
+                            Text(
+                                text = if (canUpgrade) "⚡ OVERCLOCK & UPGRADE EQUIPMENT" else "INSUFFICIENT MATERIALS",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -701,17 +1347,34 @@ private fun RoomItemCard(
 
 @Composable
 private fun CraftItemDialog(
+    scrapAvailable: Int,
+    chemAvailable: Int,
     onCraft: (name: String, type: String, dmg: Int, def: Int, heal: Int, tox: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var itemName by remember { mutableStateOf("Overcharged Plasma Rail") }
     var itemType by remember { mutableStateOf("WEAPON") }
 
+    val scrapCost = when (itemType) {
+        "WEAPON" -> 3
+        "ARMOR" -> 4
+        "NEURAL_CHIP" -> 2
+        else -> 1
+    }
+    val chemCost = when (itemType) {
+        "CONSUMABLE" -> 3
+        "NEURAL_CHIP" -> 2
+        "WEAPON" -> 2
+        else -> 1
+    }
+
+    val canAfford = scrapAvailable >= scrapCost && chemAvailable >= chemCost
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(ImmersiveBackground.copy(alpha = 0.92f))
-            .padding(24.dp),
+            .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
@@ -723,11 +1386,17 @@ private fun CraftItemDialog(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "FIELD FABRICATOR (ROOM DB)",
+                    text = "CUSTOM CHEMICAL & SCRAP SYNTHESIS",
                     color = ImmersiveAccentOrange,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = "Combines chemical reactants with alloy scrap for custom field fabrication",
+                    color = ImmersiveTextMuted,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.5.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -769,7 +1438,30 @@ private fun CraftItemDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Material Cost requirements
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "🔩 Scrap Needed: $scrapAvailable/$scrapCost",
+                        color = if (scrapAvailable >= scrapCost) PhosphorGreen else ToxicRed,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.5.sp
+                    )
+                    Text(
+                        text = "🧪 Chems Needed: $chemAvailable/$chemCost",
+                        color = if (chemAvailable >= chemCost) PhosphorGreen else ToxicRed,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.5.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -802,9 +1494,12 @@ private fun CraftItemDialog(
                             .weight(1f)
                             .height(36.dp)
                             .testTag("btn_confirm_craft"),
+                        enabled = canAfford,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ImmersiveAccentOrange,
-                            contentColor = ImmersiveBackground
+                            contentColor = ImmersiveBackground,
+                            disabledContainerColor = ImmersiveSurfaceVariant,
+                            disabledContentColor = ImmersiveTextMuted
                         ),
                         shape = RoundedCornerShape(8.dp)
                     ) {
@@ -822,114 +1517,441 @@ fun CombatModal(
     playerHp: Int,
     playerMaxHp: Int,
     playerToxicity: Int,
+    playerStatusEffects: List<com.example.data.StatusEffect> = emptyList(),
+    queueState: com.example.data.TurnCombatQueueState = com.example.data.TurnCombatQueueState(),
     onAttack: () -> Unit,
+    onDefend: () -> Unit = {},
+    onUseStimpack: () -> Unit = {},
+    onUseChemEffect: (com.example.data.StatusEffectType) -> Unit = {},
+    onFlee: () -> Unit = {},
     onClose: () -> Unit
 ) {
+    val isPlayerTurn = queueState.isPlayerTurn || queueState.combatants.isEmpty()
+    val activeCombatant = queueState.activeCombatant
+    var showChemOptions by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(ImmersiveBackground.copy(alpha = 0.95f))
-            .padding(16.dp),
+            .padding(12.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .border(2.dp, ToxicRed, RoundedCornerShape(20.dp)),
+                .fillMaxWidth(0.98f)
+                .border(2.dp, if (isPlayerTurn) ImmersiveTeal else ToxicRed, RoundedCornerShape(20.dp))
+                .testTag("combat_modal_root"),
             colors = CardDefaults.cardColors(containerColor = ImmersiveSurface),
             shape = RoundedCornerShape(20.dp)
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "!!! COMBAT ENCOUNTER DETECTED !!!",
-                    color = ToxicRed,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
+                // Header with Encounter Title and Close
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "⚔ TACTICAL COMBAT ENGAGEMENT",
+                            color = if (isPlayerTurn) ImmersiveTeal else ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.testTag("btn_close_combat")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Combat",
+                            tint = ImmersiveTextMuted
+                        )
+                    }
+                }
 
-                Text(
-                    text = "[ ${enemy.asciiGlyph} ]",
-                    color = ToxicRed,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 48.sp
-                )
+                Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = enemy.name,
-                    color = ImmersiveText,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
+                // Active Combatant Turn Phase Banner
+                val bannerBg = if (isPlayerTurn) ImmersiveTeal.copy(alpha = 0.15f) else ToxicRed.copy(alpha = 0.15f)
+                val bannerBorder = if (isPlayerTurn) ImmersiveTeal else ToxicRed
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(bannerBg, RoundedCornerShape(8.dp))
+                        .border(1.dp, bannerBorder, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                        .testTag("active_turn_banner")
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isPlayerTurn) "▶ CURRENT TURN: SCYTHE-01 (YOUR ACTION)" else "⚠️ ENEMY TURN: ${activeCombatant?.name ?: enemy.name}",
+                            color = if (isPlayerTurn) ImmersiveTeal else ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.5.sp
+                        )
+
+                        Text(
+                            text = if (isPlayerTurn) "2 AP READY" else "EXECUTING AI",
+                            color = if (isPlayerTurn) PhosphorGreen else AcidYellow,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                    text = "ENEMY HP: ${enemy.hp} / ${enemy.maxHp}",
-                    color = ImmersiveTextMuted,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                val stateColor = when (enemy.state) {
-                    com.example.data.NpcState.AGGRESSIVE -> ToxicRed
-                    com.example.data.NpcState.FLEE -> AcidYellow
-                    com.example.data.NpcState.PATROL -> ImmersiveTeal
-                }
-
-                val stateText = when (enemy.state) {
-                    com.example.data.NpcState.AGGRESSIVE -> "⚔ AI STATE: AGGRESSIVE (PURSUE / ATTACK)"
-                    com.example.data.NpcState.FLEE -> "💨 AI STATE: FLEEING (PANICKED MORALE)"
-                    com.example.data.NpcState.PATROL -> "👁 AI STATE: PATROL (SURVEILLANCE ROUTE)"
-                }
-
-                Box(
+                // Target Enemy Visual Card
+                Card(
                     modifier = Modifier
-                        .background(stateColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                        .border(1.dp, stateColor, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .fillMaxWidth()
+                        .border(1.dp, ImmersiveSurfaceVariant, RoundedCornerShape(12.dp)),
+                    colors = CardDefaults.cardColors(containerColor = ImmersiveBackground),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(
-                        text = stateText,
-                        color = stateColor,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "[ ${enemy.asciiGlyph} ]",
+                                color = ToxicRed,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 32.sp
+                            )
+
+                            Column {
+                                Text(
+                                    text = enemy.name,
+                                    color = ImmersiveText,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+
+                                Text(
+                                    text = "HP: ${enemy.hp} / ${enemy.maxHp}  •  ATK: ${enemy.attack}  •  ARMOR: ${enemy.armor}",
+                                    color = ImmersiveTextMuted,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Enemy HP Progress Bar
+                        val hpProgress = (enemy.hp.toFloat() / enemy.maxHp.toFloat()).coerceIn(0f, 1f)
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { hpProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp),
+                            color = if (hpProgress > 0.3f) ToxicRed else AcidYellow,
+                            trackColor = ImmersiveSurfaceVariant
+                        )
+
+                        // Enemy Status Effects Display
+                        if (enemy.statusEffects.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "AFFLICTIONS:",
+                                    color = ImmersiveTextMuted,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                enemy.statusEffects.forEach { effect ->
+                                    val color = androidx.compose.ui.graphics.Color(effect.type.colorHex)
+                                    Box(
+                                        modifier = Modifier
+                                            .background(color.copy(alpha = 0.2f), RoundedCornerShape(3.dp))
+                                            .border(0.5.dp, color, RoundedCornerShape(3.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "${effect.iconGlyph} ${effect.name} (${effect.durationTurns}t)",
+                                            color = color,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        val stateColor = when (enemy.state) {
+                            com.example.data.NpcState.AGGRESSIVE -> ToxicRed
+                            com.example.data.NpcState.FLEE -> AcidYellow
+                            com.example.data.NpcState.PATROL -> ImmersiveTeal
+                        }
+
+                        val stateText = when (enemy.state) {
+                            com.example.data.NpcState.AGGRESSIVE -> "⚔ AI STATE: AGGRESSIVE (PURSUE / STRIKE)"
+                            com.example.data.NpcState.FLEE -> "💨 AI STATE: FLEEING (MORALE BROKEN)"
+                            com.example.data.NpcState.PATROL -> "👁 AI STATE: PATROL (SURVEILLANCE)"
+                        }
+
+                        Text(
+                            text = stateText,
+                            color = stateColor,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Button(
-                        onClick = onAttack,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ToxicRed,
-                            contentColor = ImmersiveText
-                        ),
-                        shape = RoundedCornerShape(12.dp),
+                // Player Vital & Status Summary
+                if (playerStatusEffects.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .testTag("btn_combat_attack")
+                            .fillMaxWidth()
+                            .background(ImmersiveSurfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "STRIKE WITH WEAPON",
+                            text = "ACTIVE BUFFS/DEBUFFS:",
+                            color = ImmersiveTextMuted,
                             fontFamily = FontFamily.Monospace,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Bold
                         )
+                        playerStatusEffects.forEach { effect ->
+                            val color = androidx.compose.ui.graphics.Color(effect.type.colorHex)
+                            Box(
+                                modifier = Modifier
+                                    .background(color.copy(alpha = 0.2f), RoundedCornerShape(3.dp))
+                                    .border(0.5.dp, color, RoundedCornerShape(3.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "${effect.iconGlyph} ${effect.name} (${effect.durationTurns}t)",
+                                    color = color,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Tactical Action Controls Grid
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Row 1: Strike & Defend
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Button(
+                            onClick = onAttack,
+                            enabled = isPlayerTurn,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ToxicRed,
+                                contentColor = ImmersiveText,
+                                disabledContainerColor = ImmersiveSurfaceVariant,
+                                disabledContentColor = ImmersiveTextMuted
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .testTag("btn_combat_attack")
+                        ) {
+                            Text(
+                                text = "⚔ STRIKE WEAPON",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        Button(
+                            onClick = onDefend,
+                            enabled = isPlayerTurn,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ImmersiveSurfaceVariant,
+                                contentColor = ImmersiveTeal,
+                                disabledContainerColor = ImmersiveSurfaceVariant,
+                                disabledContentColor = ImmersiveTextMuted
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .border(1.dp, ImmersiveTeal.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .testTag("btn_combat_defend")
+                        ) {
+                            Text(
+                                text = "🛡 DEFEND / WAIT",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+
+                    // Row 2: Stimpack, Tactical Chem Menu & Disengage/Flee
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Button(
+                            onClick = onUseStimpack,
+                            enabled = isPlayerTurn,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ImmersiveSurfaceVariant,
+                                contentColor = PhosphorGreen,
+                                disabledContainerColor = ImmersiveSurfaceVariant,
+                                disabledContentColor = ImmersiveTextMuted
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp)
+                                .border(1.dp, PhosphorGreen.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .testTag("btn_combat_stimpack")
+                        ) {
+                            Text(
+                                text = "🧪 STIM (+35HP)",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.5.sp
+                            )
+                        }
+
+                        Button(
+                            onClick = { showChemOptions = !showChemOptions },
+                            enabled = isPlayerTurn,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (showChemOptions) ImmersiveAccentOrange else ImmersiveSurfaceVariant,
+                                contentColor = if (showChemOptions) ImmersiveBackground else ImmersiveAccentOrange,
+                                disabledContainerColor = ImmersiveSurfaceVariant,
+                                disabledContentColor = ImmersiveTextMuted
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp)
+                                .border(1.dp, ImmersiveAccentOrange.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .testTag("btn_combat_chem_menu")
+                        ) {
+                            Text(
+                                text = if (showChemOptions) "▲ HIDE CHEMS" else "⚡ CHEMS / STATUS",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp
+                            )
+                        }
+
+                        Button(
+                            onClick = onFlee,
+                            enabled = isPlayerTurn,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ImmersiveSurfaceVariant,
+                                contentColor = AcidYellow,
+                                disabledContainerColor = ImmersiveSurfaceVariant,
+                                disabledContentColor = ImmersiveTextMuted
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(0.9f)
+                                .height(38.dp)
+                                .border(1.dp, AcidYellow.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .testTag("btn_combat_flee")
+                        ) {
+                            Text(
+                                text = "💨 FLEE",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.5.sp
+                            )
+                        }
+                    }
+
+                    // Tactical Status / Chem Action Expandable Row
+                    if (showChemOptions && isPlayerTurn) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Button(
+                                onClick = { onUseChemEffect(com.example.data.StatusEffectType.ADRENALINE); showChemOptions = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF0284C7), contentColor = ImmersiveText),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.weight(1f).height(32.dp).testTag("btn_chem_adrenaline"),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            ) {
+                                Text("💉 ADRENALINE", fontSize = 8.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = { onUseChemEffect(com.example.data.StatusEffectType.STUN); showChemOptions = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFD97706), contentColor = ImmersiveText),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.weight(1f).height(32.dp).testTag("btn_chem_stun"),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            ) {
+                                Text("⚡ EMP STUN", fontSize = 8.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = { onUseChemEffect(com.example.data.StatusEffectType.CORROSION); showChemOptions = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFEA580C), contentColor = ImmersiveText),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.weight(1f).height(32.dp).testTag("btn_chem_corrosion"),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            ) {
+                                Text("🧪 ACID FLASK", fontSize = 8.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = { onUseChemEffect(com.example.data.StatusEffectType.RADIATION); showChemOptions = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF059669), contentColor = ImmersiveText),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.weight(1f).height(32.dp).testTag("btn_chem_purge"),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            ) {
+                                Text("✨ PURGE TOX", fontSize = 8.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }

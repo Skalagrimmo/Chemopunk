@@ -8,6 +8,9 @@ import com.example.data.Item
 import com.example.data.ItemType
 import com.example.data.StoryNode
 import com.example.data.TileType
+import com.example.data.room.BranchingChoiceEntity
+import com.example.data.room.NarrativeNodeEntity
+import com.example.data.room.StoryScriptEntity
 import java.io.InputStream
 
 /**
@@ -63,7 +66,54 @@ data class NarrativeScriptDocument(
     val storyNodes: Map<String, StoryNode> = emptyMap(),
     val standaloneBlocks: List<MarkdownBlock> = emptyList(),
     val rawText: String = ""
-)
+) {
+    /**
+     * Converts this parsed AST document into persistent Room entities.
+     */
+    fun toRoomEntities(
+        category: String = "CAMPAIGN",
+        isCustom: Boolean = false,
+        description: String = ""
+    ): Triple<StoryScriptEntity, List<NarrativeNodeEntity>, List<BranchingChoiceEntity>> {
+        val scriptEntity = StoryScriptEntity(
+            scriptId = assetFileName,
+            title = title,
+            category = category,
+            description = description.ifEmpty { "Script containing ${storyNodes.size} dialogue & branching nodes." },
+            rawMarkdown = rawText,
+            initialNodeId = storyNodes.keys.firstOrNull() ?: "start",
+            totalNodesCount = storyNodes.size,
+            isCustom = isCustom,
+            lastParsedTimestamp = System.currentTimeMillis()
+        )
+
+        val nodeEntities = mutableListOf<NarrativeNodeEntity>()
+        val choiceEntities = mutableListOf<BranchingChoiceEntity>()
+
+        storyNodes.values.forEachIndexed { nodeIndex, node ->
+            nodeEntities.add(
+                NarrativeNodeEntity.fromDomainStoryNode(
+                    scriptId = assetFileName,
+                    node = node,
+                    orderIndex = nodeIndex
+                )
+            )
+
+            node.choices.forEachIndexed { choiceIndex, choice ->
+                choiceEntities.add(
+                    BranchingChoiceEntity.fromDomainChoice(
+                        scriptId = assetFileName,
+                        nodeId = node.id,
+                        choiceIndex = choiceIndex,
+                        choice = choice
+                    )
+                )
+            }
+        }
+
+        return Triple(scriptEntity, nodeEntities, choiceEntities)
+    }
+}
 
 /**
  * High-performance, AST-based Markdown Parser for Chemopunk / Retro RPG Narrative Scripts.
@@ -309,9 +359,10 @@ object MarkdownNarrativeParser {
                 val listItems = mutableListOf<List<InlineElement>>()
                 while (i < lines.size && (lines[i].trim().startsWith("- ") || lines[i].trim().startsWith("* ") || lines[i].trim().startsWith("+ "))) {
                     val itemText = lines[i].trim().substring(2).trim()
-                    if (!itemText.startsWith("Choice:")) {
-                        listItems.add(parseInline(itemText, variableResolver))
+                    if (itemText.startsWith("Choice:", ignoreCase = true) || itemText.startsWith("Choice ", ignoreCase = true)) {
+                        break
                     }
+                    listItems.add(parseInline(itemText, variableResolver))
                     i++
                 }
                 if (listItems.isNotEmpty()) {
@@ -366,7 +417,7 @@ object MarkdownNarrativeParser {
     /**
      * Parses enriched choice strings such as:
      * `[Purge nearest chemical valve (-10 Toxicity)](@node_purge)`
-     * or `[Unlock Security Door | Req: keycard_alpha](@node_security)`
+     * `[Unlock Security Door | Req: keycard_alpha | Flag: SEC_CLEARANCE | Tox: -5 | HP: +10 | CR: +50 | SetFlag: VAULT_OPENED | Action: UNLOCK_DOOR](@node_security)`
      */
     fun parseChoiceString(choiceStr: String): Choice? {
         val match = Regex("""\[(.*?)\]\(@?(.*?)\)""").find(choiceStr) ?: return null
@@ -375,6 +426,11 @@ object MarkdownNarrativeParser {
 
         var text = fullLabel
         var reqItem: String? = null
+        var minLvl = 0
+        var reqFlag: String? = null
+        var setFlag: String? = null
+        var rewardItem: String? = null
+        var failTarget: String? = null
         var toxCost = 0
         var hpReward = 0
         var crReward = 0
@@ -388,13 +444,28 @@ object MarkdownNarrativeParser {
                 val sub = p.lowercase()
                 when {
                     sub.startsWith("req:") -> reqItem = p.substringAfter(":").trim()
+                    sub.startsWith("lvl:") || sub.startsWith("level:") -> {
+                        minLvl = p.substringAfter(":").trim().toIntOrNull() ?: 0
+                    }
+                    sub.startsWith("flag:") || sub.startsWith("reqflag:") -> {
+                        reqFlag = p.substringAfter(":").trim()
+                    }
+                    sub.startsWith("setflag:") || sub.startsWith("set:") -> {
+                        setFlag = p.substringAfter(":").trim()
+                    }
+                    sub.startsWith("reward:") || sub.startsWith("item:") -> {
+                        rewardItem = p.substringAfter(":").trim()
+                    }
+                    sub.startsWith("fail:") || sub.startsWith("failure:") -> {
+                        failTarget = p.substringAfter(":").trim().removePrefix("@")
+                    }
                     sub.startsWith("tox:") -> {
                         toxCost = p.substringAfter(":").trim().replace("+", "").toIntOrNull() ?: 0
                     }
                     sub.startsWith("hp:") -> {
                         hpReward = p.substringAfter(":").trim().replace("+", "").toIntOrNull() ?: 0
                     }
-                    sub.startsWith("cr:") -> {
+                    sub.startsWith("cr:") || sub.startsWith("credits:") -> {
                         crReward = p.substringAfter(":").trim().replace("+", "").toIntOrNull() ?: 0
                     }
                     sub.startsWith("action:") -> {
@@ -412,6 +483,10 @@ object MarkdownNarrativeParser {
             if (hpMatch != null) {
                 hpReward = hpMatch.groupValues[1].toIntOrNull() ?: 0
             }
+            val crMatch = Regex("""\(([+-]?\d+)\s*(?:CR|Credits)\)""", RegexOption.IGNORE_CASE).find(fullLabel)
+            if (crMatch != null) {
+                crReward = crMatch.groupValues[1].toIntOrNull() ?: 0
+            }
         }
 
         return Choice(
@@ -421,7 +496,12 @@ object MarkdownNarrativeParser {
             toxicityCost = toxCost,
             hpReward = hpReward,
             creditsReward = crReward,
-            actionTrigger = action
+            actionTrigger = action,
+            requiredMinLevel = minLvl,
+            requiredStoryFlag = reqFlag,
+            setStoryFlag = setFlag,
+            rewardItemId = rewardItem,
+            failureTargetNodeId = failTarget
         )
     }
 
@@ -527,18 +607,42 @@ object MarkdownNarrativeParser {
             currentEntityProps.clear()
         }
 
+        var currentStoryAtmosphere = "SECTOR_7_LAB"
+        var currentStorySfx: String? = null
+        var currentStoryReqFlag: String? = null
+        var currentStoryIsCheckpoint = false
+
         fun finalizeStoryNode() {
             if (currentStoryId.isNotBlank()) {
                 val rawContent = currentStoryContentLines.joinToString("\n").trim()
+                
+                // If speaker is not set via `- Speaker:`, attempt extraction from first dialogue line `> [SPEAKER (MOOD)]: ...`
+                var resolvedSpeaker = currentStorySpeaker
+                var resolvedMood = currentStoryMood
+                if (resolvedSpeaker == null) {
+                    val dialogueMatch = Regex("""^>\s*\[(.*?)(?:\s*\((.*?)\))?\]:\s*(.*)$""", RegexOption.MULTILINE).find(rawContent)
+                    if (dialogueMatch != null) {
+                        resolvedSpeaker = dialogueMatch.groupValues[1].trim()
+                        val moodGroup = dialogueMatch.groupValues[2].trim()
+                        if (moodGroup.isNotEmpty()) {
+                            resolvedMood = moodGroup.uppercase()
+                        }
+                    }
+                }
+
                 val node = StoryNode(
                     id = currentStoryId,
                     title = currentStoryTitle.ifEmpty { "Log #${currentStoryId}" },
                     content = rawContent,
-                    speaker = currentStorySpeaker,
+                    speaker = resolvedSpeaker,
                     category = currentStoryCategory,
-                    mood = currentStoryMood,
+                    mood = resolvedMood,
                     choices = currentStoryChoices.toList(),
-                    rawMarkdown = rawContent
+                    rawMarkdown = rawContent,
+                    bgAtmosphere = currentStoryAtmosphere,
+                    soundEffectCue = currentStorySfx,
+                    requiredStoryFlag = currentStoryReqFlag,
+                    isCheckpoint = currentStoryIsCheckpoint
                 )
                 storyNodes[currentStoryId] = node
             }
@@ -547,8 +651,20 @@ object MarkdownNarrativeParser {
             currentStorySpeaker = null
             currentStoryCategory = "STORY"
             currentStoryMood = "NORMAL"
+            currentStoryAtmosphere = "SECTOR_7_LAB"
+            currentStorySfx = null
+            currentStoryReqFlag = null
+            currentStoryIsCheckpoint = false
             currentStoryContentLines.clear()
             currentStoryChoices.clear()
+        }
+
+        fun finalizeCurrentSection() {
+            when (currentSection) {
+                "ITEMS" -> finalizeItem()
+                "ENEMIES" -> finalizeEnemy()
+                "STORY" -> finalizeStoryNode()
+            }
         }
 
         var inCodeBlock = false
@@ -563,33 +679,23 @@ object MarkdownNarrativeParser {
             }
 
             if (trimmed.startsWith("## GAME_CONFIG")) {
-                finalizeItem()
-                finalizeEnemy()
-                finalizeStoryNode()
+                finalizeCurrentSection()
                 currentSection = "CONFIG"
                 continue
             } else if (trimmed.startsWith("## ITEM_DATABASE")) {
-                finalizeItem()
-                finalizeEnemy()
-                finalizeStoryNode()
+                finalizeCurrentSection()
                 currentSection = "ITEMS"
                 continue
             } else if (trimmed.startsWith("## ENEMY_DATABASE")) {
-                finalizeItem()
-                finalizeEnemy()
-                finalizeStoryNode()
+                finalizeCurrentSection()
                 currentSection = "ENEMIES"
                 continue
             } else if (trimmed.startsWith("## MAP_LAYOUT")) {
-                finalizeItem()
-                finalizeEnemy()
-                finalizeStoryNode()
+                finalizeCurrentSection()
                 currentSection = "MAP"
                 continue
             } else if (trimmed.startsWith("## STORY_NODES") || trimmed.startsWith("## AUDIO_LOGS") || trimmed.startsWith("## ARCHIVE_ENTRIES") || trimmed.startsWith("## CHAPTERS")) {
-                finalizeItem()
-                finalizeEnemy()
-                finalizeStoryNode()
+                finalizeCurrentSection()
                 currentSection = "STORY"
                 continue
             }
@@ -659,6 +765,18 @@ object MarkdownNarrativeParser {
                             trimmed.startsWith("- Speaker:") -> currentStorySpeaker = trimmed.substring("- Speaker:".length).trim()
                             trimmed.startsWith("- Mood:") -> currentStoryMood = trimmed.substring("- Mood:".length).trim().uppercase()
                             trimmed.startsWith("- Category:") -> currentStoryCategory = trimmed.substring("- Category:".length).trim().uppercase()
+                            trimmed.startsWith("- Atmosphere:") || trimmed.startsWith("- Bg:") -> {
+                                currentStoryAtmosphere = trimmed.substringAfter(":").trim()
+                            }
+                            trimmed.startsWith("- SFX:") || trimmed.startsWith("- Sound:") -> {
+                                currentStorySfx = trimmed.substringAfter(":").trim()
+                            }
+                            trimmed.startsWith("- RequireFlag:") || trimmed.startsWith("- ReqFlag:") -> {
+                                currentStoryReqFlag = trimmed.substringAfter(":").trim()
+                            }
+                            trimmed.startsWith("- Checkpoint:") -> {
+                                currentStoryIsCheckpoint = trimmed.substringAfter(":").trim().equals("true", ignoreCase = true)
+                            }
                             trimmed.startsWith("- Choice:") -> {
                                 val choice = parseChoiceString(trimmed.substring("- Choice:".length).trim())
                                 if (choice != null) currentStoryChoices.add(choice)
@@ -682,9 +800,7 @@ object MarkdownNarrativeParser {
             }
         }
 
-        finalizeItem()
-        finalizeEnemy()
-        finalizeStoryNode()
+        finalizeCurrentSection()
 
         // Map layout parsing
         val mapGrid = mutableListOf<MutableList<TileType>>()

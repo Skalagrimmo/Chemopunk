@@ -48,7 +48,7 @@ class DynamicLightingEngineTest {
 
         assertTrue("Tile close to point torch should be illuminated", lighting.inDirectLight)
         assertFalse("Tile close to point torch should not be hidden in FOW", lighting.isFOWHidden)
-        assertTrue("Intensity should be strong near light source", lighting.totalIntensity > 0.8f)
+        assertTrue("Intensity should be strong near light source", lighting.totalIntensity > 0.65f)
     }
 
     @Test

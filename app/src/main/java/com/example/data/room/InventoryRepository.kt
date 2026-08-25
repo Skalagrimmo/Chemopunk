@@ -107,6 +107,9 @@ class InventoryRepository(
                 )
             )
 
+            // Seed Initial Crafting Materials (Scrap Metal, Chem Reagents, Bio-Gel, Micro-Circuits)
+            entities.addAll(CraftingMaterials.DEFAULT_MATERIALS)
+
             inventoryDao.insertAll(entities)
 
             profileDao.insertOrUpdateProfile(
@@ -203,19 +206,197 @@ class InventoryRepository(
         return item
     }
 
-    suspend fun scrapItem(itemId: String): Int {
-        val item = inventoryDao.findItemDirect(itemId) ?: return 0
+data class ScrapResult(
+    val creditsGained: Int,
+    val scrapMetalGained: Int,
+    val chemReagentsGained: Int,
+    val itemName: String
+)
+
+    suspend fun getMaterialQuantity(materialId: String): Int {
+        return inventoryDao.findItemDirect(materialId)?.quantity ?: 0
+    }
+
+    suspend fun addMaterialQuantity(materialId: String, count: Int) {
+        if (count <= 0) return
+        val existing = inventoryDao.findItemDirect(materialId)
+        if (existing != null) {
+            inventoryDao.updateQuantity(materialId, existing.quantity + count)
+        } else {
+            val template = CraftingMaterials.DEFAULT_MATERIALS.firstOrNull { it.itemId == materialId }
+            if (template != null) {
+                inventoryDao.insertItem(template.copy(quantity = count))
+            }
+        }
+    }
+
+    private suspend fun deductMaterial(materialId: String, amount: Int): Boolean {
+        if (amount <= 0) return true
+        val item = inventoryDao.findItemDirect(materialId) ?: return false
+        if (item.quantity < amount) return false
+        if (item.quantity == amount) {
+            inventoryDao.deleteItemById(materialId)
+        } else {
+            inventoryDao.updateQuantity(materialId, item.quantity - amount)
+        }
+        return true
+    }
+
+    suspend fun craftRecipe(recipe: CraftingRecipe): Result<InventoryItemEntity> {
+        val scrapHave = getMaterialQuantity(CraftingMaterials.SCRAP_METAL)
+        val chemHave = getMaterialQuantity(CraftingMaterials.CHEM_REAGENT)
+        val biogelHave = getMaterialQuantity(CraftingMaterials.BIOGEL_VIAL)
+        val circuitHave = getMaterialQuantity(CraftingMaterials.MICRO_CIRCUIT)
+
+        if (scrapHave < recipe.scrapMetalCost) {
+            return Result.failure(Exception("Insufficient Scrap Metal ($scrapHave/${recipe.scrapMetalCost})"))
+        }
+        if (chemHave < recipe.chemReagentCost) {
+            return Result.failure(Exception("Insufficient Chemical Reagents ($chemHave/${recipe.chemReagentCost})"))
+        }
+        if (biogelHave < recipe.biogelCost) {
+            return Result.failure(Exception("Insufficient Bio-Gel ($biogelHave/${recipe.biogelCost})"))
+        }
+        if (circuitHave < recipe.microCircuitCost) {
+            return Result.failure(Exception("Insufficient Micro-Circuits ($circuitHave/${recipe.microCircuitCost})"))
+        }
+
+        // Deduct materials
+        deductMaterial(CraftingMaterials.SCRAP_METAL, recipe.scrapMetalCost)
+        deductMaterial(CraftingMaterials.CHEM_REAGENT, recipe.chemReagentCost)
+        deductMaterial(CraftingMaterials.BIOGEL_VIAL, recipe.biogelCost)
+        deductMaterial(CraftingMaterials.MICRO_CIRCUIT, recipe.microCircuitCost)
+
+        val cleanId = "crafted_${recipe.recipeId}_${System.currentTimeMillis()}"
+        val slot = when (recipe.resultType) {
+            "WEAPON" -> EquipSlot.WEAPON.name
+            "ARMOR" -> EquipSlot.ARMOR.name
+            "NEURAL_CHIP" -> EquipSlot.NEURAL_CHIP.name
+            else -> EquipSlot.NONE.name
+        }
+
+        val newItem = InventoryItemEntity(
+            itemId = cleanId,
+            name = recipe.name,
+            type = recipe.resultType,
+            rarity = recipe.resultRarity.name,
+            category = when (recipe.category) {
+                CraftingCategory.WEAPONS -> "Fabricated Weapon"
+                CraftingCategory.ARMOR -> "Fabricated Exosuit"
+                CraftingCategory.CHEMS -> "Synthesized Chem"
+                CraftingCategory.CYBERWARE -> "Synthesized Cyberware"
+            },
+            damage = recipe.damage,
+            defense = recipe.defense,
+            healHp = recipe.healHp,
+            reduceToxicity = recipe.reduceToxicity,
+            criticalBonus = recipe.criticalBonus,
+            durability = recipe.maxDurability,
+            maxDurability = recipe.maxDurability,
+            weightKg = recipe.weightKg,
+            creditValue = (recipe.scrapMetalCost * 8 + recipe.chemReagentCost * 12 + recipe.microCircuitCost * 25 + 30),
+            quantity = 1,
+            isEquipped = false,
+            equipSlot = slot,
+            description = recipe.resultDescription,
+            techLevel = 1,
+            modSlots = if (recipe.resultRarity == ItemRarity.EPIC || recipe.resultRarity == ItemRarity.LEGENDARY) 2 else 1
+        )
+
+        inventoryDao.insertItem(newItem)
+        return Result.success(newItem)
+    }
+
+    suspend fun upgradeEquipment(itemId: String): Result<InventoryItemEntity> {
+        val item = inventoryDao.findItemDirect(itemId)
+            ?: return Result.failure(Exception("Item not found"))
+
+        if (item.type != "WEAPON" && item.type != "ARMOR" && item.type != "NEURAL_CHIP") {
+            return Result.failure(Exception("Only Weapons, Armor, and Cyberware can be upgraded"))
+        }
+
+        val upgradeCost = UpgradeEngine.calculateUpgrade(item)
+        val scrapHave = getMaterialQuantity(CraftingMaterials.SCRAP_METAL)
+        val chemHave = getMaterialQuantity(CraftingMaterials.CHEM_REAGENT)
+        val profile = profileDao.getProfileDirect(1)
+            ?: return Result.failure(Exception("Character profile not found"))
+
+        if (scrapHave < upgradeCost.scrapCost) {
+            return Result.failure(Exception("Need ${upgradeCost.scrapCost} Scrap Metal (Have: $scrapHave)"))
+        }
+        if (chemHave < upgradeCost.chemCost) {
+            return Result.failure(Exception("Need ${upgradeCost.chemCost} Chemical Reagents (Have: $chemHave)"))
+        }
+        if (profile.credits < upgradeCost.creditCost) {
+            return Result.failure(Exception("Need ${upgradeCost.creditCost} Credits (Have: ${profile.credits} CR)"))
+        }
+
+        // Deduct resources
+        deductMaterial(CraftingMaterials.SCRAP_METAL, upgradeCost.scrapCost)
+        deductMaterial(CraftingMaterials.CHEM_REAGENT, upgradeCost.chemCost)
+        profileDao.updateCredits(1, profile.credits - upgradeCost.creditCost)
+
+        // Upgrade item
+        val upgradedName = if (item.name.contains(" +")) {
+            item.name.replace(Regex(" \\+\\d+"), " +${upgradeCost.nextTechLevel}")
+        } else {
+            "${item.name} +${upgradeCost.nextTechLevel}"
+        }
+
+        val upgradedItem = item.copy(
+            name = upgradedName,
+            damage = upgradeCost.nextDamage,
+            defense = upgradeCost.nextDefense,
+            durability = upgradeCost.nextMaxDurability,
+            maxDurability = upgradeCost.nextMaxDurability,
+            techLevel = upgradeCost.nextTechLevel,
+            creditValue = item.creditValue + upgradeCost.creditCost / 2
+        )
+
+        inventoryDao.insertItem(upgradedItem)
+        return Result.success(upgradedItem)
+    }
+
+    suspend fun scrapItem(itemId: String): ScrapResult {
+        val item = inventoryDao.findItemDirect(itemId) ?: return ScrapResult(0, 0, 0, "")
         if (item.isEquipped) {
             unequipItem(itemId)
         }
-        val scrapValue = (item.creditValue * 0.75f).toInt().coerceAtLeast(1) * item.quantity
+
+        val scrapCredits = (item.creditValue * 0.6f).toInt().coerceAtLeast(1) * item.quantity
+        val scrapMetalYield = when (item.type) {
+            "WEAPON" -> (1 + item.techLevel) * item.quantity
+            "ARMOR" -> (2 + item.techLevel * 2) * item.quantity
+            "NEURAL_CHIP" -> 1 * item.quantity
+            else -> 1 * item.quantity
+        }
+        val chemYield = when (item.type) {
+            "CONSUMABLE" -> 2 * item.quantity
+            "WEAPON" -> if (item.techLevel > 1) 1 else 0
+            "ARMOR" -> if (item.techLevel > 1) 1 else 0
+            "NEURAL_CHIP" -> 2 * item.quantity
+            else -> 0
+        }
+
         inventoryDao.deleteItemById(itemId)
+
+        // Add salvaged materials back to inventory
+        addMaterialQuantity(CraftingMaterials.SCRAP_METAL, scrapMetalYield)
+        if (chemYield > 0) {
+            addMaterialQuantity(CraftingMaterials.CHEM_REAGENT, chemYield)
+        }
 
         val profile = profileDao.getProfileDirect(1)
         if (profile != null) {
-            profileDao.updateCredits(1, profile.credits + scrapValue)
+            profileDao.updateCredits(1, profile.credits + scrapCredits)
         }
-        return scrapValue
+
+        return ScrapResult(
+            creditsGained = scrapCredits,
+            scrapMetalGained = scrapMetalYield,
+            chemReagentsGained = chemYield,
+            itemName = item.name
+        )
     }
 
     suspend fun repairItem(itemId: String): Pair<Boolean, Int> {
