@@ -241,7 +241,9 @@ class AsciiGlSurfaceView @JvmOverloads constructor(
         floatingTexts: List<FloatingText>,
         paletteIndex: Int,
         scanlineIntensity: Float = 0.55f,
-        ditherStrength: Float = 1.0f
+        ditherStrength: Float = 1.0f,
+        screenShakeIntensity: Float = 0f,
+        screenShakeStartTime: Long = 0L
     ) {
         playerX = player.x
         playerY = player.y
@@ -257,6 +259,8 @@ class AsciiGlSurfaceView @JvmOverloads constructor(
             paletteIndex = paletteIndex,
             panOffsetX = panOffsetX,
             panOffsetY = panOffsetY,
+            shakeIntensity = screenShakeIntensity,
+            shakeStartTime = screenShakeStartTime,
             zoomLevel = zoomLevel,
             scanlineIntensity = scanlineIntensity,
             ditherStrength = ditherStrength

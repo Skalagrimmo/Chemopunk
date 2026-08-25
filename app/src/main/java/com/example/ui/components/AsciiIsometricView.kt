@@ -60,6 +60,8 @@ fun AsciiIsometricView(
     discoveredTiles: Set<Pair<Int, Int>>,
     floatingTexts: List<FloatingText>,
     paletteIndex: Int,
+    screenShakeIntensity: Float = 0f,
+    screenShakeStartTime: Long = 0L,
     onTileTapped: (Int, Int) -> Unit,
     onLongPress: (Float, Float, Int, Int) -> Unit = { _, _, _, _ -> },
     onDropFlare: () -> Unit = {},
@@ -149,7 +151,9 @@ fun AsciiIsometricView(
                 animTime = animTime,
                 zoom = zoomLevel,
                 panOffsetX = panOffsetX,
-                panOffsetY = panOffsetY
+                panOffsetY = panOffsetY,
+                shakeIntensity = screenShakeIntensity,
+                shakeStartTime = screenShakeStartTime
             )
         }
 

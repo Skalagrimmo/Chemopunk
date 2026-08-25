@@ -52,6 +52,7 @@ import com.example.ui.components.ControlDPad
 import com.example.ui.components.HudOverlay
 import com.example.ui.components.InventoryModal
 import com.example.ui.components.MarkdownEditorModal
+import com.example.ui.components.QuestLogModal
 import com.example.ui.components.RadialQuickActionMenu
 import com.example.ui.components.StoryDialogueScreen
 import com.example.ui.components.StoryModal
@@ -108,7 +109,9 @@ fun GameScreen(viewModel: GameViewModel) {
                 HudOverlay(
                     player = uiState.player,
                     audioProfile = uiState.audioProfile,
+                    isEncumbered = uiState.isEncumbered,
                     onOpenInventory = { viewModel.openModal(ActiveModal.INVENTORY) },
+                    onOpenQuests = { viewModel.openModal(ActiveModal.QUEST_LOG) },
                     onOpenStoryNotes = { viewModel.setViewMode(ViewMode.STORY_DIALOGUE) },
                     onOpenMarkdownEditor = { viewModel.setViewMode(ViewMode.MARKDOWN_EDITOR) },
                     onTogglePalette = { viewModel.togglePalette() },
@@ -135,6 +138,8 @@ fun GameScreen(viewModel: GameViewModel) {
                             discoveredTiles = uiState.discoveredTiles,
                             floatingTexts = uiState.floatingTexts,
                             paletteIndex = uiState.colorPaletteIndex,
+                            screenShakeIntensity = uiState.screenShakeIntensity,
+                            screenShakeStartTime = uiState.screenShakeStartTime,
                             onTileTapped = { gx, gy -> viewModel.handleTileTap(gx, gy) },
                             onLongPress = { sx, sy, gx, gy ->
                                 radialTouchOffset = Offset(sx, sy)
@@ -162,6 +167,8 @@ fun GameScreen(viewModel: GameViewModel) {
                             discoveredTiles = uiState.discoveredTiles,
                             floatingTexts = uiState.floatingTexts,
                             paletteIndex = uiState.colorPaletteIndex,
+                            screenShakeIntensity = uiState.screenShakeIntensity,
+                            screenShakeStartTime = uiState.screenShakeStartTime,
                             onTileTapped = { gx, gy -> viewModel.handleTileTap(gx, gy) },
                             onLongPress = { sx, sy, gx, gy ->
                                 radialTouchOffset = Offset(sx, sy)
@@ -311,6 +318,12 @@ fun GameScreen(viewModel: GameViewModel) {
                             onClose = { viewModel.closeModal() }
                         )
                     }
+                }
+                ActiveModal.QUEST_LOG -> {
+                    QuestLogModal(
+                        quests = uiState.quests,
+                        onClose = { viewModel.closeModal() }
+                    )
                 }
                 else -> {}
             }

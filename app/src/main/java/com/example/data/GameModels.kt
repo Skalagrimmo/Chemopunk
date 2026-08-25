@@ -5,7 +5,56 @@ enum class TileType {
     FLOOR,
     TOXIC_POOL,
     DOOR,
-    EXTRACTION_LIFT
+    EXTRACTION_LIFT,
+    INTERACTIVE
+}
+
+/**
+ * Static world props the player can interact with by tapping an adjacent (or occupied) tile.
+ * Rendered as the INTERACTIVE tile type and trigger events in the ViewModel.
+ */
+enum class InteractiveObjectType(val glyph: Char, val label: String) {
+    TERMINAL('⌨', "Data Terminal"),
+    LOCKER('▣', "Supply Locker"),
+    SWITCH('⊞', "Power Switch"),
+    BEACON('☉', "Rescue Beacon")
+}
+
+data class InteractiveObject(
+    val id: String,
+    val type: InteractiveObjectType,
+    val x: Int,
+    val y: Int,
+    var isUsed: Boolean = false,
+    val description: String = "",
+    // For SWITCH: the light source id it toggles (or null to simply brighten the area)
+    val linkedLightId: String? = null
+)
+
+/**
+ * Quest journal entries derived from narrative progress & world milestones.
+ */
+enum class QuestStatus { ACTIVE, COMPLETED, FAILED }
+
+data class QuestObjective(
+    val id: String,
+    val description: String,
+    val isCompleted: Boolean = false
+)
+
+data class Quest(
+    val id: String,
+    val title: String,
+    val description: String,
+    val status: QuestStatus = QuestStatus.ACTIVE,
+    val objectives: List<QuestObjective> = emptyList()
+) {
+    val progressText: String
+        get() {
+            if (objectives.isEmpty()) return if (status == QuestStatus.COMPLETED) "DONE" else "ACTIVE"
+            val done = objectives.count { it.isCompleted }
+            return "$done/${objectives.size}"
+        }
 }
 
 enum class IsoDirection(val label: String, val dx: Int, val dy: Int, val arrow: String) {
@@ -194,15 +243,19 @@ enum class LogCategory(val label: String, val badge: String) {
 data class CombatLogEntry(
     val message: String,
     val isCritical: Boolean = false,
+    val isMiss: Boolean = false,
+    val isHeal: Boolean = false,
     val timestamp: Long = System.currentTimeMillis(),
-    val category: LogCategory = categorizeMessage(message, isCritical),
+    val category: LogCategory = categorizeMessage(message, isCritical, isMiss, isHeal),
     val impactValue: String? = extractImpactValue(message),
     val isInteractive: Boolean = true
 ) {
     companion object {
-        fun categorizeMessage(msg: String, critical: Boolean): LogCategory {
+        fun categorizeMessage(msg: String, critical: Boolean, miss: Boolean = false, heal: Boolean = false): LogCategory {
             val lower = msg.lowercase()
             return when {
+                heal -> LogCategory.LOOT
+                miss -> LogCategory.SYSTEM
                 lower.contains("strike") || lower.contains("hit") || lower.contains("crit") ||
                 lower.contains("damage") || lower.contains("attack") || lower.contains("defeated") ||
                 lower.contains("engaged") || lower.contains("counter-attack") || lower.contains("blocked") -> LogCategory.COMBAT

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
@@ -65,8 +66,10 @@ fun HudOverlay(
     onOpenInventory: () -> Unit,
     onOpenStoryNotes: () -> Unit,
     onOpenMarkdownEditor: () -> Unit,
-    onTogglePalette: () -> Unit,
-    onToggleAudioMute: () -> Unit = {}
+    onOpenQuests: () -> Unit = {},
+    onTogglePalette: () -> Unit = {},
+    onToggleAudioMute: () -> Unit = {},
+    isEncumbered: Boolean = false
 ) {
     Column(
         modifier = Modifier
@@ -164,6 +167,16 @@ fun HudOverlay(
                             fontFamily = FontFamily.Monospace
                         )
                     }
+                    if (isEncumbered) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "⚠ OVER-ENCUMBERED",
+                            color = ToxicRed,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
@@ -202,6 +215,23 @@ fun HudOverlay(
                         imageVector = Icons.Default.ColorLens,
                         contentDescription = "Palette",
                         tint = ImmersiveTeal,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenQuests,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(ImmersiveSurfaceVariant)
+                        .border(0.8.dp, ImmersiveAccentOrange.copy(alpha = 0.5f), CircleShape)
+                        .testTag("btn_quests")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Flag,
+                        contentDescription = "Quests",
+                        tint = ImmersiveAccentOrange,
                         modifier = Modifier.size(17.dp)
                     )
                 }

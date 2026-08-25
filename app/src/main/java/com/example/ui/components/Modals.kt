@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.sp
 import com.example.data.Choice
 import com.example.data.Enemy
 import com.example.data.Item
+import com.example.data.Quest
+import com.example.data.QuestStatus
 import com.example.data.StoryNode
 import com.example.ui.theme.AcidYellow
 import com.example.ui.theme.AmberTerminal
@@ -2046,6 +2048,163 @@ fun MarkdownEditorModal(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Quest Journal modal — built from narrative progress + world milestones.
+ */
+@Composable
+fun QuestLogModal(
+    quests: List<Quest>,
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ImmersiveBackground.copy(alpha = 0.96f))
+            .padding(12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.98f)
+                .fillMaxHeight(0.9f)
+                .border(1.5.dp, ImmersiveTeal, RoundedCornerShape(20.dp)),
+            colors = CardDefaults.cardColors(containerColor = ImmersiveSurface),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "▣ MISSION JOURNAL",
+                        color = ImmersiveTeal,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    IconButton(onClick = onClose, modifier = Modifier.testTag("btn_close_quests")) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = ImmersiveTeal)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (quests.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "NO ACTIVE CONTRACTS",
+                            color = ImmersiveTextMuted,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(quests, key = { it.id }) { quest ->
+                            val accent = when (quest.status) {
+                                QuestStatus.COMPLETED -> PhosphorGreen
+                                QuestStatus.FAILED -> ToxicRed
+                                else -> ImmersiveAccentOrange
+                            }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = ImmersiveBackground),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = quest.title,
+                                            color = ImmersiveText,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(accent.copy(alpha = 0.2f))
+                                                .border(0.6.dp, accent, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = quest.status.name,
+                                                color = accent,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 8.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = quest.description,
+                                        color = ImmersiveTextMuted,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        lineHeight = 13.sp
+                                    )
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    quest.objectives.forEach { obj ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (obj.isCompleted) "✔" else "○",
+                                                color = if (obj.isCompleted) PhosphorGreen else ImmersiveTextMuted,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp
+                                            )
+                                            Text(
+                                                text = obj.description,
+                                                color = if (obj.isCompleted) PhosphorGreen else ImmersiveText,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    if (quest.objectives.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "PROGRESS: ${quest.progressText}",
+                                            color = accent,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 9.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

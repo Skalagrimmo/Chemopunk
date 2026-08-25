@@ -310,7 +310,13 @@ fun InteractiveLogItem(
     entry: CombatLogEntry,
     onInspect: () -> Unit
 ) {
-    val (icon, iconTint, bgTint) = getCategoryVisuals(entry.category, entry.isCritical)
+    val (icon, iconTintBase, bgTint) = getCategoryVisuals(entry.category, entry.isCritical)
+    val accent = when {
+        entry.isHeal -> PhosphorGreen
+        entry.isMiss -> ImmersiveTextMuted
+        entry.isCritical -> ToxicRed
+        else -> iconTintBase
+    }
 
     AnimatedVisibility(
         visible = true,
@@ -323,11 +329,16 @@ fun InteractiveLogItem(
                 .clickable(onClick = onInspect)
                 .border(
                     0.8.dp,
-                    if (entry.isCritical) ToxicRed.copy(alpha = 0.8f) else ImmersiveSurfaceVariant.copy(alpha = 0.4f),
+                    accent.copy(alpha = if (entry.isCritical || entry.isHeal || entry.isMiss) 0.85f else 0.4f),
                     RoundedCornerShape(6.dp)
                 )
                 .testTag("log_item_${entry.category.name.lowercase()}"),
-            color = if (entry.isCritical) ToxicRed.copy(alpha = 0.12f) else bgTint
+            color = when {
+                entry.isCritical -> ToxicRed.copy(alpha = 0.12f)
+                entry.isHeal -> PhosphorGreen.copy(alpha = 0.12f)
+                entry.isMiss -> ImmersiveSurfaceVariant.copy(alpha = 0.5f)
+                else -> bgTint
+            }
         ) {
             Row(
                 modifier = Modifier
@@ -361,10 +372,10 @@ fun InteractiveLogItem(
                     // Message text
                     Text(
                         text = entry.message,
-                        color = if (entry.isCritical) ToxicRed else ImmersiveText,
+                        color = accent,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        fontWeight = if (entry.isCritical) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = if (entry.isCritical || entry.isHeal || entry.isMiss) FontWeight.Bold else FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -412,6 +423,40 @@ fun InteractiveLogItem(
                         Text(
                             text = "CRIT",
                             color = ToxicRed,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
+                        )
+                    }
+                } else if (entry.isMiss) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(ImmersiveSurfaceVariant.copy(alpha = 0.6f))
+                            .border(0.6.dp, ImmersiveTextMuted, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "MISS",
+                            color = ImmersiveTextMuted,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp
+                        )
+                    }
+                } else if (entry.isHeal) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(PhosphorGreen.copy(alpha = 0.2f))
+                            .border(0.6.dp, PhosphorGreen, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "HEAL",
+                            color = PhosphorGreen,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 9.sp

@@ -140,12 +140,23 @@ class AsciiIsometricEngine {
         zoom: Float = 1.0f,
         panOffsetX: Float = 0f,
         panOffsetY: Float = 0f,
+        shakeIntensity: Float = 0f,
+        shakeStartTime: Long = 0L,
         onTargetBodyPart: ((Enemy, String) -> Unit)? = null
     ) {
         val width = drawScope.size.width
         val height = drawScope.size.height
-        val centerX = width * 0.5f + panOffsetX
-        val centerY = height * 0.44f + panOffsetY
+
+        // Screen-shake on heavy hits / damage (decays over 0.5s from trigger time)
+        val shakeElapsed = (System.currentTimeMillis() - shakeStartTime) / 1000f
+        val shakeMag = if (shakeStartTime > 0L && shakeElapsed in 0f..0.5f) {
+            shakeIntensity * (1f - shakeElapsed / 0.5f)
+        } else 0f
+        val shakeX = if (shakeMag > 0f) (Math.random().toFloat() - 0.5f) * 2f * shakeMag else 0f
+        val shakeY = if (shakeMag > 0f) (Math.random().toFloat() - 0.5f) * 2f * shakeMag else 0f
+
+        val centerX = width * 0.5f + panOffsetX + shakeX
+        val centerY = height * 0.44f + panOffsetY + shakeY
 
         val canvas = drawScope.drawContext.canvas.nativeCanvas
 
@@ -615,6 +626,23 @@ class AsciiIsometricEngine {
 
                 canvas.drawText("[|DOOR|]", basePos.x, basePos.y - 4f * zoom, textPaint)
                 canvas.drawText("<===>", basePos.x, basePos.y + 5f * zoom, textPaint)
+            }
+
+            TileType.INTERACTIVE -> {
+                // Pulsing world prop (terminal / locker / switch / beacon)
+                val pulse = (sin(animTime * 5.0f + gridX * 0.7f + gridY * 0.3f) * 0.25f + 0.9f)
+                val propColor = lightingEngine.blendColorWithLighting(
+                    baseR = (100 * pulse).toInt().coerceIn(0, 255),
+                    baseG = (240 * pulse).toInt().coerceIn(0, 255),
+                    baseB = (255 * pulse).toInt().coerceIn(0, 255),
+                    lighting = lighting, palette = palette, gridX = gridX, gridY = gridY
+                )
+                textPaint.textSize = 12f * zoom
+                textPaint.isFakeBoldText = true
+                textPaint.color = propColor
+                val glyph = if ((gridX + gridY) % 2 == 0) "⌧" else "▣"
+                canvas.drawText(glyph, basePos.x, basePos.y - 2f * zoom, textPaint)
+                canvas.drawText(":::", basePos.x, basePos.y + 7f * zoom, textPaint)
             }
 
             TileType.FLOOR -> {

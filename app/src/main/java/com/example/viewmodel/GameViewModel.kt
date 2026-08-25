@@ -8,11 +8,16 @@ import com.example.data.CombatQueueEntity
 import com.example.data.CombatantType
 import com.example.data.Enemy
 import com.example.data.FloatingText
+import com.example.data.InteractiveObject
+import com.example.data.InteractiveObjectType
 import com.example.data.Item
 import com.example.data.ItemType
 import com.example.data.MarkdownParser
 import com.example.data.NpcState
 import com.example.data.Player
+import com.example.data.Quest
+import com.example.data.QuestObjective
+import com.example.data.QuestStatus
 import com.example.data.StatusEffect
 import com.example.data.StatusEffectType
 import com.example.data.StoryNode
@@ -66,6 +71,13 @@ data class GameUiState(
     val mapGrid: List<List<TileType>> = emptyList(),
     val lightSources: List<LightSource> = emptyList(),
     val combatLogs: List<CombatLogEntry> = emptyList(),
+    val interactiveObjects: Map<Pair<Int, Int>, InteractiveObject> = emptyMap(),
+    val quests: List<Quest> = emptyList(),
+    val killCount: Int = 0,
+    val itemsCollected: Int = 0,
+    val isEncumbered: Boolean = false,
+    val screenShakeIntensity: Float = 0f,
+    val screenShakeStartTime: Long = 0L,
     val currentViewMode: ViewMode = ViewMode.ISOMETRIC_WORLD,
     val activeModal: ActiveModal = ActiveModal.NONE,
     val colorPaletteIndex: Int = 0, // 0: Cyberpunk Multi-Color, 1: Green CRT, 2: Amber, 3: Cyan
@@ -149,6 +161,211 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Scatters interactive world props (terminals, lockers, switches, beacons) onto FLOOR tiles,
+     * converting them to the INTERACTIVE tile type so they render and can be triggered on tap.
+     */
+    private fun injectInteractiveObjects(mapGrid: List<List<TileType>>): Pair<List<List<TileType>>, Map<Pair<Int, Int>, InteractiveObject>> {
+        if (mapGrid.isEmpty()) return Pair(mapGrid, emptyMap())
+        val floorTiles = mutableListOf<Pair<Int, Int>>()
+        for (r in mapGrid.indices) {
+            for (c in mapGrid[r].indices) {
+                if (mapGrid[r][c] == TileType.FLOOR) floorTiles.add(Pair(c, r))
+            }
+        }
+        if (floorTiles.size < 4) return Pair(mapGrid, emptyMap())
+
+        val picks = listOf(3, 8, 13, 18).mapNotNull { floorTiles.getOrNull(it) }
+        val types = listOf(
+            InteractiveObjectType.TERMINAL,
+            InteractiveObjectType.LOCKER,
+            InteractiveObjectType.SWITCH,
+            InteractiveObjectType.BEACON
+        )
+
+        val mutable = mapGrid.map { it.toMutableList() }
+        val result = mutableMapOf<Pair<Int, Int>, InteractiveObject>()
+        picks.forEachIndexed { idx, (x, y) ->
+            val type = types.getOrElse(idx) { InteractiveObjectType.TERMINAL }
+            mutable[y][x] = TileType.INTERACTIVE
+            result[Pair(x, y)] = InteractiveObject(
+                id = "io_${type.name.lowercase()}_${x}_$y",
+                type = type,
+                x = x,
+                y = y,
+                description = when (type) {
+                    InteractiveObjectType.TERMINAL -> "Encrypted Sector 7 terminal. May contain salvage codes or intel."
+                    InteractiveObjectType.LOCKER -> "Sealed supply locker. Might contain useful gear."
+                    InteractiveObjectType.SWITCH -> "Power relay switch. Activating it floods the area with light."
+                    InteractiveObjectType.BEACON -> "Emergency rescue beacon. Signals extraction forces."
+                }
+            )
+        }
+        return Pair(mutable.map { it.toList() }, result)
+    }
+
+    private fun buildInitialQuests(): List<Quest> {
+        return listOf(
+            Quest(
+                id = "escape_sector_7",
+                title = "Escape Sector 7",
+                description = "Reach the Extraction Lift and purge the sector of mutagens.",
+                objectives = listOf(
+                    QuestObjective(id = "reach_lift", description = "Reach the Extraction Lift"),
+                    QuestObjective(id = "survive", description = "Survive with bio-suit intact")
+                )
+            ),
+            Quest(
+                id = "purge_hostiles",
+                title = "Purge the Mutagen Horde",
+                description = "Eliminate hostile organisms roaming the facility.",
+                objectives = listOf(QuestObjective(id = "kills", description = "Defeat 3 hostiles"))
+            ),
+            Quest(
+                id = "salvage_run",
+                title = "Salvage Run",
+                description = "Recover useful equipment from the wasteland.",
+                objectives = listOf(QuestObjective(id = "collect", description = "Collect 5 pieces of salvage"))
+            )
+        )
+    }
+
+    private fun computeEncumbered(roomInventory: List<InventoryItemEntity>, maxCarryWeight: Float): Boolean {
+        val gearWeight = roomInventory
+            .filter { !it.itemId.startsWith("mat_") }
+            .sumOf { (it.weightKg * it.quantity).toDouble() }
+            .toFloat()
+        return gearWeight > maxCarryWeight
+    }
+
+    private fun updateQuestsProgress(state: GameUiState): List<Quest> {
+        return state.quests.map { quest ->
+            when (quest.id) {
+                "escape_sector_7" -> {
+                    val reached = state.isVictory
+                    val survived = state.player.hp > 0 && state.player.toxicity < 100
+                    val objectives = quest.objectives.map { obj ->
+                        when (obj.id) {
+                            "reach_lift" -> obj.copy(isCompleted = reached)
+                            "survive" -> obj.copy(isCompleted = survived)
+                            else -> obj
+                        }
+                    }
+                    quest.copy(
+                        objectives = objectives,
+                        status = if (objectives.all { it.isCompleted }) QuestStatus.COMPLETED else QuestStatus.ACTIVE
+                    )
+                }
+                "purge_hostiles" -> {
+                    val completed = state.killCount >= 3
+                    val objectives = quest.objectives.map { if (it.id == "kills") it.copy(isCompleted = completed) else it }
+                    quest.copy(objectives = objectives, status = if (completed) QuestStatus.COMPLETED else QuestStatus.ACTIVE)
+                }
+                "salvage_run" -> {
+                    val completed = state.itemsCollected >= 5
+                    val objectives = quest.objectives.map { if (it.id == "collect") it.copy(isCompleted = completed) else it }
+                    quest.copy(objectives = objectives, status = if (completed) QuestStatus.COMPLETED else QuestStatus.ACTIVE)
+                }
+                else -> quest
+            }
+        }
+    }
+
+    private fun triggerScreenShake(intensity: Float) {
+        _uiState.update {
+            it.copy(screenShakeIntensity = intensity, screenShakeStartTime = System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Triggers an interactive object's effect when the player taps (or stands next to) it.
+     */
+    private fun interactWithObject(obj: InteractiveObject) {
+        val state = _uiState.value
+        val grid = state.mapGrid
+        if (grid.isEmpty() || obj.y !in grid.indices || obj.x !in grid[obj.y].indices) return
+        if (obj.isUsed) return
+
+        val logs = state.combatLogs.toMutableList()
+        var player = state.player
+        val px = player.x
+        val py = player.y
+        val distance = Math.hypot((obj.x - px).toDouble(), (obj.y - py).toDouble())
+
+        // Require adjacency or standing on the tile
+        if (distance > 1.5) {
+            logs.add(CombatLogEntry("Too far from ${obj.type.label}. Move adjacent to interact."))
+            _uiState.update { it.copy(combatLogs = logs) }
+            return
+        }
+
+        when (obj.type) {
+            InteractiveObjectType.TERMINAL -> {
+                val credits = 15
+                val exp = 5
+                player = player.copy(credits = player.credits + credits, exp = player.exp + exp)
+                logs.add(CombatLogEntry("⌨ Terminal accessed: decrypted Sector 7 logs. +$credits CR, +$exp EXP.", isCritical = false, isHeal = true))
+                spawnFloatingText("+${credits} CR", obj.x.toFloat(), obj.y.toFloat(), 0xFFFFD700)
+            }
+            InteractiveObjectType.LOCKER -> {
+                val consumables = parsedData?.items?.values?.filter { it.type == ItemType.CONSUMABLE }
+                val loot = if (!consumables.isNullOrEmpty()) consumables.random() else Item("anti_toxin", "Anti-Toxin", ItemType.CONSUMABLE, healHp = 15, reduceToxicity = 40)
+                viewModelScope.launch {
+                    inventoryRepository.addItemFromDomain(domainItem = loot, rarity = ItemRarity.UNCOMMON, weightKg = 0.3f)
+                }
+                logs.add(CombatLogEntry("▣ Supply locker opened: recovered ${loot.name}!", isHeal = true))
+                spawnFloatingText("LOOT: ${loot.name}", obj.x.toFloat(), obj.y.toFloat(), 0xFF22C55E)
+            }
+            InteractiveObjectType.SWITCH -> {
+                val newLight = LightSource(
+                    id = "switch_light_${obj.x}_${obj.y}",
+                    gridX = obj.x + 0.5f,
+                    gridY = obj.y + 0.5f,
+                    colorR = 150, colorG = 220, colorB = 255,
+                    intensity = 1.5f, radius = 7.0f,
+                    type = LightType.POINT_TORCH, flickerFrequency = 4.0f, flickerIntensity = 0.12f
+                )
+                val revealed = computeFov(obj.x, obj.y, radius = 5) + state.discoveredTiles
+                logs.add(CombatLogEntry("⊞ Power relay engaged! Area illuminated."))
+                _uiState.update {
+                    it.copy(
+                        lightSources = it.lightSources + newLight,
+                        discoveredTiles = revealed
+                    )
+                }
+                spawnFloatingText("POWER ON", obj.x.toFloat(), obj.y.toFloat(), 0xFF96E0FF)
+            }
+            InteractiveObjectType.BEACON -> {
+                val revealed = computeFov(obj.x, obj.y, radius = 8) + state.discoveredTiles
+                logs.add(CombatLogEntry("☉ Rescue beacon activated! Extraction forces have been signaled."))
+                _uiState.update { it.copy(discoveredTiles = revealed) }
+                spawnFloatingText("BEACON ONLINE", obj.x.toFloat(), obj.y.toFloat(), 0xFF4FD1C5)
+            }
+        }
+
+        // Consume the object: revert tile to FLOOR and drop it from the active map
+        val newGrid = grid.mapIndexed { r, row ->
+            if (r == obj.y) row.toMutableList().also { it[obj.x] = TileType.FLOOR } else row
+        }
+        val newObjects = state.interactiveObjects - Pair(obj.x, obj.y)
+
+        var itemsCollected = state.itemsCollected
+        if (obj.type == InteractiveObjectType.LOCKER) itemsCollected += 1
+
+        val refreshedQuests = updateQuestsProgress(state.copy(itemsCollected = itemsCollected, player = player))
+
+        _uiState.update {
+            it.copy(
+                player = player,
+                mapGrid = newGrid,
+                interactiveObjects = newObjects,
+                combatLogs = logs,
+                itemsCollected = itemsCollected,
+                quests = refreshedQuests
+            )
+        }
+    }
+
     private fun observeRoomDatabase() {
         viewModelScope.launch {
             inventoryRepository.allInventoryItems.collect { items ->
@@ -156,7 +373,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         roomInventory = items,
-                        inventory = domainItems
+                        inventory = domainItems,
+                        isEncumbered = computeEncumbered(items, it.characterProfile?.maxCarryWeightKg ?: 45.0f)
                     )
                 }
             }
@@ -298,6 +516,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val initialEnemies = initializeNpcStateMachines(data.enemies, data.mapGrid)
             val initialQueue = buildTurnCombatQueue(player, initialEnemies, round = 1, currentActiveId = "player")
 
+            val (gridWithObjects, interactiveObjectsMap) = injectInteractiveObjects(data.mapGrid)
+            val initialQuests = buildInitialQuests()
+            val isEnc = computeEncumbered(
+                roomInventory = _uiState.value.roomInventory,
+                maxCarryWeight = data.config.startingCredits.let { 45.0f }
+            )
+
             _uiState.update {
                 it.copy(
                     player = player,
@@ -307,11 +532,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     inventory = startingInventory,
                     activeEnemies = initialEnemies,
                     turnQueueState = initialQueue,
-                    mapGrid = data.mapGrid,
+                    mapGrid = gridWithObjects,
                     lightSources = initialLights,
-                    rawMarkdownContent = data.rawMarkdownText,
+                    rawMarkdownContent = data.rawMarkdownContent,
                     discoveredTiles = initialDiscovered,
-                    combatLogs = initialLogs
+                    combatLogs = initialLogs,
+                    interactiveObjects = interactiveObjectsMap,
+                    quests = initialQuests,
+                    isEncumbered = isEnc
                 )
             }
             refreshAudioAtmosphere()
@@ -454,6 +682,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+            return
+        }
+
+        // Check if tapping an interactive object (terminal / locker / switch / beacon)
+        val interactive = _uiState.value.interactiveObjects[Pair(gridX, gridY)]
+        if (interactive != null) {
+            _uiState.update { it.copy(selectedTile = Pair(gridX, gridY)) }
+            interactWithObject(interactive)
             return
         }
 
@@ -952,6 +1188,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (tileR in grid.indices && tileC in grid[tileR].indices) {
             val tile = grid[tileR][tileC]
             if (tile != TileType.WALL) {
+                // Weight-based inventory: over-encumbered players are slowed by labored movement
+                if (_uiState.value.isEncumbered && Math.random() < 0.35f) {
+                    val encLogs = _uiState.value.combatLogs + CombatLogEntry("OVER-ENCUMBERED: movement labored (drop gear to move freely)!", isCritical = true)
+                    spawnFloatingText("ENCUMBERED", newX, newY, 0xFFFF4150)
+                    _uiState.update { it.copy(combatLogs = encLogs) }
+                    return
+                }
+
                 var tox = _uiState.value.player.toxicity
                 val logs = _uiState.value.combatLogs.toMutableList()
 
@@ -965,13 +1209,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
                 val updatedPlayer = _uiState.value.player.copy(x = newX, y = newY, toxicity = tox)
                 val refreshedQueue = buildTurnCombatQueue(updatedPlayer, _uiState.value.activeEnemies)
+                val refreshedQuests = updateQuestsProgress(_uiState.value.copy(player = updatedPlayer))
 
                 _uiState.update { state ->
                     state.copy(
                         player = updatedPlayer,
                         discoveredTiles = newDiscovered,
                         combatLogs = logs,
-                        turnQueueState = refreshedQueue
+                        turnQueueState = refreshedQueue,
+                        quests = refreshedQuests
                     )
                 }
 
@@ -983,7 +1229,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Check Extraction
                 if (tile == TileType.EXTRACTION_LIFT) {
-                    _uiState.update { it.copy(isVictory = true) }
+                    val finalQuests = updateQuestsProgress(_uiState.value.copy(isVictory = true))
+                    _uiState.update { it.copy(isVictory = true, quests = finalQuests) }
                 }
             }
         }
@@ -1036,6 +1283,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val newHp = (player.hp - netDmg).coerceAtLeast(0)
                 val newTox = (player.toxicity + turnResult.toxicityDealtToPlayer).coerceAtMost(100)
                 player = player.copy(hp = newHp, toxicity = newTox)
+                triggerScreenShake(12f)
             }
         }
 
@@ -1084,40 +1332,73 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val chipDmg = stats.activeChip?.damage ?: 0
         val critBonus = stats.activeChip?.criticalBonus ?: 0f
 
+        val equippedWeapon = stats.activeWeapon
+        val weaponBroken = equippedWeapon?.isBroken == true
+        val logs = _uiState.value.combatLogs.toMutableList()
+
+        // Broken weapon has a chance to jam, wasting the attack entirely
+        if (weaponBroken && Math.random() < 0.5f) {
+            logs.add(CombatLogEntry("⚠️ WEAPON JAMMED! ${equippedWeapon?.name ?: "Weapon"} is broken and failed to fire.", isCritical = true))
+            spawnFloatingText("JAMMED!", enemy.x, enemy.y, 0xFFFF4150)
+            triggerScreenShake(6f)
+            _uiState.update {
+                it.copy(
+                    combatLogs = logs,
+                    turnQueueState = buildTurnCombatQueue(player, it.activeEnemies)
+                )
+            }
+            return
+        }
+
         val isCrit = Math.random() < (0.15 + critBonus)
+        val isMiss = !weaponBroken && Math.random() < 0.10
         val enemyCorrosion = enemy.statusEffects.filter { it.type == StatusEffectType.CORROSION }.sumOf { it.magnitude }
         val effectiveEnemyArmor = (enemy.armor - enemyCorrosion).coerceAtLeast(0)
 
         val baseDmg = (player.attackPower + adrenalineBonus + weaponDmg + chipDmg - effectiveEnemyArmor).coerceAtLeast(3)
-        val totalDmg = if (isCrit) (baseDmg * 1.5f).toInt() else baseDmg
+        // Broken weapons deal reduced damage (in addition to the jam chance above)
+        val brokenMult = if (weaponBroken) 0.5f else 1f
+        val totalDmg = if (isMiss) 0 else ((if (isCrit) (baseDmg * 1.5f) else baseDmg.toFloat()) * brokenMult).toInt()
 
         val newEnemyHp = (enemy.hp - totalDmg).coerceAtLeast(0)
-        val logs = _uiState.value.combatLogs.toMutableList()
-        val hitMsg = if (isCrit) "CRITICAL STRIKE on ${enemy.name} for $totalDmg damage!" else "Attacked ${enemy.name} for $totalDmg damage!"
-        logs.add(CombatLogEntry(hitMsg, isCritical = isCrit))
-        spawnFloatingText(if (isCrit) "-$totalDmg CRIT!" else "-$totalDmg", enemy.x, enemy.y, 0xFFFF4150)
-
-        // Weapon durability degradation on strike
-        viewModelScope.launch {
-            inventoryRepository.degradeEquippedWeapon(1)
+        val hitMsg = when {
+            isMiss -> "Attack against ${enemy.name} MISSED!"
+            isCrit -> "CRITICAL STRIKE on ${enemy.name} for $totalDmg damage!"
+            else -> "Attacked ${enemy.name} for $totalDmg damage!"
+        }
+        logs.add(CombatLogEntry(hitMsg, isCritical = isCrit, isMiss = isMiss))
+        if (isMiss) {
+            spawnFloatingText("MISS", enemy.x, enemy.y, 0xFF94A3B8)
+        } else {
+            spawnFloatingText(if (isCrit) "-$totalDmg CRIT!" else "-$totalDmg", enemy.x, enemy.y, 0xFFFF4150)
+            triggerScreenShake(if (isCrit) 14f else 8f)
         }
 
-        // Status effect chance on strike
+        // Weapon durability degradation on a successful strike
+        if (!isMiss) {
+            viewModelScope.launch {
+                inventoryRepository.degradeEquippedWeapon(1)
+            }
+        }
+
+        // Status effect chance on strike (only on a successful hit)
         val enemyEffects = enemy.statusEffects.toMutableList()
-        if (isCrit && Math.random() < 0.6) {
-            enemyEffects.add(StatusEffect(type = StatusEffectType.STUN, durationTurns = 1, magnitude = 1))
-            logs.add(CombatLogEntry("⚡ Critical Shock stunned ${enemy.name}!", isCritical = true))
-            spawnFloatingText("⚡ STUNNED", enemy.x, enemy.y, 0xFFF59E0B)
-        } else if (Math.random() < 0.35) {
-            val roll = Math.random()
-            if (roll < 0.5) {
-                enemyEffects.add(StatusEffect(type = StatusEffectType.CORROSION, durationTurns = 3, magnitude = 5))
-                logs.add(CombatLogEntry("🧪 Acid Splash corroded ${enemy.name}'s armor (-5 DEF)!"))
-                spawnFloatingText("🧪 CORROSION", enemy.x, enemy.y, 0xFFF97316)
-            } else {
-                enemyEffects.add(StatusEffect(type = StatusEffectType.POISON, durationTurns = 3, magnitude = 6))
-                logs.add(CombatLogEntry("☣ Bio-Dart poisoned ${enemy.name} (6 DMG/turn)!"))
-                spawnFloatingText("☣ POISON", enemy.x, enemy.y, 0xFF10B981)
+        if (!isMiss) {
+            if (isCrit && Math.random() < 0.6) {
+                enemyEffects.add(StatusEffect(type = StatusEffectType.STUN, durationTurns = 1, magnitude = 1))
+                logs.add(CombatLogEntry("⚡ Critical Shock stunned ${enemy.name}!", isCritical = true))
+                spawnFloatingText("⚡ STUNNED", enemy.x, enemy.y, 0xFFF59E0B)
+            } else if (Math.random() < 0.35) {
+                val roll = Math.random()
+                if (roll < 0.5) {
+                    enemyEffects.add(StatusEffect(type = StatusEffectType.CORROSION, durationTurns = 3, magnitude = 5))
+                    logs.add(CombatLogEntry("🧪 Acid Splash corroded ${enemy.name}'s armor (-5 DEF)!"))
+                    spawnFloatingText("🧪 CORROSION", enemy.x, enemy.y, 0xFFF97316)
+                } else {
+                    enemyEffects.add(StatusEffect(type = StatusEffectType.POISON, durationTurns = 3, magnitude = 6))
+                    logs.add(CombatLogEntry("☣ Bio-Dart poisoned ${enemy.name} (6 DMG/turn)!"))
+                    spawnFloatingText("☣ POISON", enemy.x, enemy.y, 0xFF10B981)
+                }
             }
         }
 
@@ -1135,11 +1416,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             spawnFloatingText("+${enemy.expReward} EXP", enemy.x, enemy.y, 0xFF4FD1C5)
 
             var inv = _uiState.value.inventory.toMutableList()
+            var lootObtained = false
             if (enemy.lootItemId != null) {
                 val lootItem = parsedData?.items?.get(enemy.lootItemId)
                 if (lootItem != null) {
                     inv.add(lootItem)
-                    logs.add(CombatLogEntry("Looted item: ${lootItem.name}! (Saved to Room DB)"))
+                    lootObtained = true
+                    logs.add(CombatLogEntry("Looted item: ${lootItem.name}! (Saved to Room DB)", isHeal = true))
                     spawnFloatingText("LOOT: ${lootItem.name}", enemy.x, enemy.y, 0xFFFFD700)
 
                     viewModelScope.launch {
@@ -1152,6 +1435,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
+            val newKillCount = _uiState.value.killCount + 1
+            val newItemsCollected = _uiState.value.itemsCollected + if (lootObtained) 1 else 0
+            val updatedPlayer = player.copy(exp = player.exp + enemy.expReward, credits = player.credits + 20)
+            val refreshedQuests = updateQuestsProgress(
+                _uiState.value.copy(killCount = newKillCount, itemsCollected = newItemsCollected, player = updatedPlayer)
+            )
+
             _uiState.update {
                 it.copy(
                     activeCombatEnemy = null,
@@ -1160,7 +1450,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     combatLogs = logs,
                     activeEnemies = updatedEnemies,
                     turnQueueState = refreshedQueue,
-                    player = player.copy(exp = player.exp + enemy.expReward, credits = player.credits + 20)
+                    killCount = newKillCount,
+                    itemsCollected = newItemsCollected,
+                    quests = refreshedQuests,
+                    player = updatedPlayer
                 )
             }
         } else {
@@ -1192,6 +1485,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             logs.add(CombatLogEntry("${enemy.name} counter-attacked for $enemyDmg damage (Armor blocked ${totalDef} DMG)!"))
 
             // Armor durability degradation on impact
+            triggerScreenShake(10f)
             viewModelScope.launch {
                 inventoryRepository.degradeEquippedArmor(1)
             }
@@ -1278,7 +1572,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val player = _uiState.value.player
         val newHp = (player.hp + 35).coerceAtMost(player.maxHp)
         val newTox = (player.toxicity - 15).coerceAtLeast(0)
-        val logs = _uiState.value.combatLogs + CombatLogEntry("Quick Stimpack applied: +35 HP, -15% Toxicity purged.")
+        val logs = _uiState.value.combatLogs + CombatLogEntry("Quick Stimpack applied: +35 HP, -15% Toxicity purged.", isHeal = true)
         spawnFloatingText("+35 HP", player.x, player.y, 0xFF4FD1C5)
         spawnFloatingText("-15% TOX", player.x, player.y, 0xFF38BDF8)
         _uiState.update {

@@ -40,6 +40,8 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
         val paletteIndex: Int = 0,
         val panOffsetX: Float = 0f,
         val panOffsetY: Float = 0f,
+        val shakeIntensity: Float = 0f,
+        val shakeStartTime: Long = 0L,
         val zoomLevel: Float = 1.05f,
         val scanlineIntensity: Float = 0.55f,
         val ditherStrength: Float = 1.0f
@@ -385,8 +387,17 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
         val cols = mapGrid[0].size
         val player = snap.player
         val zoom = snap.zoomLevel
-        val centerX = surfaceWidth * 0.5f + snap.panOffsetX
-        val centerY = surfaceHeight * 0.44f + snap.panOffsetY
+
+        // Screen-shake on heavy hits / damage (decays over 0.5s from trigger time)
+        val shakeElapsed = (System.currentTimeMillis() - snap.shakeStartTime) / 1000f
+        val shakeMag = if (snap.shakeStartTime > 0L && shakeElapsed in 0f..0.5f) {
+            snap.shakeIntensity * (1f - shakeElapsed / 0.5f)
+        } else 0f
+        val shakeX = if (shakeMag > 0f) (Math.random().toFloat() - 0.5f) * 2f * shakeMag else 0f
+        val shakeY = if (shakeMag > 0f) (Math.random().toFloat() - 0.5f) * 2f * shakeMag else 0f
+
+        val centerX = surfaceWidth * 0.5f + snap.panOffsetX + shakeX
+        val centerY = surfaceHeight * 0.44f + snap.panOffsetY + shakeY
 
         // Assemble active light sources
         activeLightsBuffer.clear()
@@ -727,6 +738,26 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
                     bgR = 0.18f, bgG = 0.12f, bgB = 0.05f, bgA = 0.8f,
                     lightIntensity = lightInt,
                     tintR = lightR, tintG = lightG, tintB = lightB,
+                    gridX = gx, gridY = gy
+                )
+            }
+            TileType.INTERACTIVE -> {
+                // Pulsing world prop (terminal / locker / switch / beacon)
+                val pulse = sin(animTime * 5.0f + gridX * 0.7f + gridY * 0.3f) * 0.25f + 0.9f
+                val glyph = when {
+                    // Visual variety by position is handled by tint; use a generic console glyph
+                    (gridX + gridY) % 2 == 0 -> '⌧'
+                    else -> '▣'
+                }
+                characterBuffer.pushCharCell(
+                    cx = baseX, cy = baseY,
+                    halfW = halfW, halfH = halfH, z = 0.35f,
+                    char = glyph,
+                    fgR = 0.4f, fgG = 0.95f, fgB = 1.0f, fgA = 1.0f,
+                    bgR = 0.05f, bgG = 0.20f, bgB = 0.24f, bgA = 0.8f,
+                    lightIntensity = lightInt * pulse,
+                    glow = 1.0f,
+                    tintR = 0.4f, tintG = 0.95f, tintB = 1.0f,
                     gridX = gx, gridY = gy
                 )
             }
