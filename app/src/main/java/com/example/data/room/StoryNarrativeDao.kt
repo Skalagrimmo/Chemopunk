@@ -138,6 +138,14 @@ interface StoryNarrativeDao {
     // 4. RELATIONAL GRAPH QUERIES (@Transaction)
     // ==========================================
 
+    /**
+     * Returns a narrative node with its Room-populated choices.
+     *
+     * IMPORTANT: The returned [NarrativeNodeWithChoices.choices] list may contain choices
+     * from OTHER scripts that share the same nodeId (Room @Relation limitation).
+     * Callers MUST use [NarrativeNodeWithChoices.getScriptFilteredChoices] or call
+     * [getChoicesForNodeDirect] with both scriptId and nodeId for correctly scoped results.
+     */
     @Transaction
     @Query("SELECT * FROM narrative_nodes WHERE scriptId = :scriptId AND nodeId = :nodeId LIMIT 1")
     fun getNodeWithChoices(scriptId: String, nodeId: String): Flow<NarrativeNodeWithChoices?>

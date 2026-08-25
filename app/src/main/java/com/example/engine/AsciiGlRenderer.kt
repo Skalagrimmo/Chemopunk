@@ -464,15 +464,6 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
             animTime = animTime
         )
 
-        // Compute spatial light map buffer
-        lightMapBuffer.computeLightMap(
-            mapGrid = mapGrid,
-            lightSources = activeLightsBuffer,
-            discoveredTiles = snap.discoveredTiles,
-            animTime = animTime,
-            enableShadows = true
-        )
-
         // Draw Engagement Radius (Dotted ring)
         renderEngagementRing(centerX, centerY, player.x, player.y, zoom, snap.paletteIndex)
 
@@ -901,5 +892,18 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
             6 -> Triple(0.0f, 0.03f, 0.01f)  // Matrix
             else -> Triple(0.03f, 0.04f, 0.05f) // HDR Dark Wasteland
         }
+    }
+
+    fun release() {
+        if (programId != 0) {
+            GLES20.glDeleteProgram(programId)
+            programId = 0
+        }
+        if (fontAtlasTextureId != 0) {
+            GLES20.glDeleteTextures(1, intArrayOf(fontAtlasTextureId), 0)
+            fontAtlasTextureId = 0
+        }
+        dynamicLightMapSystem.release()
+        mesh3dRenderer.release()
     }
 }

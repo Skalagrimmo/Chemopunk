@@ -249,4 +249,13 @@ class Ascii3dMeshRenderer {
         GLES20.glDisableVertexAttribArray(aTexCoordLoc)
         GLES20.glDisableVertexAttribArray(aColorLoc)
     }
+
+    fun release() {
+        if (programId != 0) {
+            GLES20.glDeleteProgram(programId)
+            programId = 0
+        }
+        cubeVertexBuffer = null
+        cubeIndexBuffer = null
+    }
 }

@@ -375,7 +375,7 @@ fun HudOverlay(
         Spacer(modifier = Modifier.height(6.dp))
 
         // Slim EXP Progression Bar for Mobile
-        val expNeeded = player.level * 100
+        val expNeeded = if (player.level > 0) player.level * 100 else 100
         val expCurrent = player.exp % expNeeded
         val expProgress = (expCurrent.toFloat() / expNeeded.toFloat()).coerceIn(0f, 1f)
 

@@ -555,9 +555,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     existing.add(effect)
                 }
-                enemy.copy(statusEffects = existing).also {
-                    enemy.statusEffects = existing
-                }
+                enemy.copy(statusEffects = existing)
             } else enemy
         }
 
@@ -705,11 +703,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            enemy.hp = enemyHp
-            enemy.statusEffects = remainingEffects
-            if (enemyHp == 0) enemy.isAlive = false
+            val updatedEnemy = enemy.copy(
+                hp = enemyHp,
+                statusEffects = remainingEffects,
+                isAlive = enemyHp > 0
+            )
 
-            val updatedEnemies = state.activeEnemies.map { if (it.id == enemy.id) enemy else it }
+            val updatedEnemies = state.activeEnemies.map { if (it.id == enemy.id) updatedEnemy else it }
             val refreshedQueue = buildTurnCombatQueue(state.player, updatedEnemies)
 
             _uiState.update {
@@ -719,7 +719,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     turnQueueState = refreshedQueue
                 )
             }
-            return canAct && enemy.isAlive
+            return canAct && updatedEnemy.isAlive
         }
     }
 
@@ -824,47 +824,54 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * Cycles through turn queue in initiative order, triggering AI for NPCs or waiting for player input.
      */
     fun advanceTurnQueue() {
-        val state = _uiState.value
-        val currentQueue = state.turnQueueState
+        var state = _uiState.value
+        var currentQueue = state.turnQueueState
         if (currentQueue.combatants.isEmpty()) {
             val refreshed = buildTurnCombatQueue(state.player, state.activeEnemies)
             _uiState.update { it.copy(turnQueueState = refreshed) }
             return
         }
 
-        val nextIndex = (currentQueue.currentTurnIndex + 1) % currentQueue.combatants.size
-        val nextRound = if (nextIndex == 0) currentQueue.roundNumber + 1 else currentQueue.roundNumber
-        val nextCombatant = currentQueue.combatants.getOrNull(nextIndex) ?: return
+        var processedCount = 0
+        while (processedCount < currentQueue.combatants.size) {
+            val nextIndex = (currentQueue.currentTurnIndex + 1) % currentQueue.combatants.size
+            val nextRound = if (nextIndex == 0) currentQueue.roundNumber + 1 else currentQueue.roundNumber
+            val nextCombatant = currentQueue.combatants.getOrNull(nextIndex) ?: return
 
-        val updatedCombatants = currentQueue.combatants.map {
-            it.copy(isCurrentTurn = it.id == nextCombatant.id)
+            val updatedCombatants = currentQueue.combatants.map {
+                it.copy(isCurrentTurn = it.id == nextCombatant.id)
+            }
+
+            val nextQueueState = currentQueue.copy(
+                roundNumber = nextRound,
+                currentTurnIndex = nextIndex,
+                combatants = updatedCombatants,
+                activeCombatantId = nextCombatant.id,
+                turnPhase = if (nextCombatant.isPlayer) TurnPhase.PLAYER_INPUT else TurnPhase.NPC_ACTION
+            )
+
+            _uiState.update { it.copy(turnQueueState = nextQueueState) }
+
+            val canAct = processCombatantTurnStatusEffects(nextCombatant.id)
+            state = _uiState.value
+            currentQueue = state.turnQueueState
+
+            if (!canAct) {
+                processedCount++
+                continue
+            }
+
+            if (!nextCombatant.isPlayer) {
+                executeNpcCombatantTurn(nextCombatant.id)
+                return
+            } else {
+                val logs = state.combatLogs + CombatLogEntry("⚡ Round $nextRound: Scythe-01 ready. (Your Turn)")
+                _uiState.update { it.copy(combatLogs = logs) }
+                return
+            }
         }
-
-        val nextQueueState = currentQueue.copy(
-            roundNumber = nextRound,
-            currentTurnIndex = nextIndex,
-            combatants = updatedCombatants,
-            activeCombatantId = nextCombatant.id,
-            turnPhase = if (nextCombatant.isPlayer) TurnPhase.PLAYER_INPUT else TurnPhase.NPC_ACTION
-        )
-
-        _uiState.update { it.copy(turnQueueState = nextQueueState) }
-
-        // Process Status Effects at Turn Start
-        val canAct = processCombatantTurnStatusEffects(nextCombatant.id)
-
-        if (!canAct) {
-            // Turn skipped due to stun
-            advanceTurnQueue()
-            return
-        }
-
-        if (!nextCombatant.isPlayer) {
-            executeNpcCombatantTurn(nextCombatant.id)
-        } else {
-            val logs = _uiState.value.combatLogs + CombatLogEntry("⚡ Round $nextRound: Scythe-01 ready. (Your Turn)")
-            _uiState.update { it.copy(combatLogs = logs) }
-        }
+        val refreshed = buildTurnCombatQueue(state.player, state.activeEnemies, currentQueue.roundNumber + 1)
+        _uiState.update { it.copy(turnQueueState = refreshed) }
     }
 
     private fun executeNpcCombatantTurn(enemyId: String) {
@@ -1022,7 +1029,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (turnResult.damageDealtToPlayer > 0) {
                 val armorDef = if (stats.totalArmorDefense > 0) stats.totalArmorDefense else (player.equippedArmor?.defense ?: 0)
                 val chipDef = stats.activeChip?.defense ?: 0
-                val totalDef = (armorDef + chipDef) / 2
+                val corrosionDefLoss = player.statusEffects.filter { it.type == StatusEffectType.CORROSION }.sumOf { it.magnitude }
+                val totalDef = ((armorDef + chipDef) / 2 - corrosionDefLoss).coerceAtLeast(0)
                 val netDmg = (turnResult.damageDealtToPlayer - totalDef).coerceAtLeast(1)
 
                 val newHp = (player.hp - netDmg).coerceAtLeast(0)
@@ -1112,10 +1120,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 spawnFloatingText("☣ POISON", enemy.x, enemy.y, 0xFF10B981)
             }
         }
-        enemy.statusEffects = enemyEffects
 
         if (newEnemyHp == 0) {
-            enemy.isAlive = false
+            val updatedEnemy = enemy.copy(
+                hp = newEnemyHp,
+                statusEffects = enemyEffects,
+                isAlive = newEnemyHp > 0,
+                state = enemy.state
+            )
+            val updatedEnemies = _uiState.value.activeEnemies.map { if (it.id == enemy.id) updatedEnemy else it }
+            val refreshedQueue = buildTurnCombatQueue(player, updatedEnemies)
+
             logs.add(CombatLogEntry("Defeated ${enemy.name}! +${enemy.expReward} EXP!"))
             spawnFloatingText("+${enemy.expReward} EXP", enemy.x, enemy.y, 0xFF4FD1C5)
 
@@ -1137,9 +1152,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val updatedEnemies = _uiState.value.activeEnemies.map { if (it.id == enemy.id) enemy else it }
-            val refreshedQueue = buildTurnCombatQueue(player, updatedEnemies)
-
             _uiState.update {
                 it.copy(
                     activeCombatEnemy = null,
@@ -1152,16 +1164,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         } else {
-            enemy.hp = newEnemyHp
-
-            // Check if NPC enters FLEE or AGGRESSIVE state
             val hpRatio = newEnemyHp.toFloat() / enemy.maxHp.toFloat()
+            val updatedEnemy = enemy.copy(
+                hp = newEnemyHp,
+                statusEffects = enemyEffects,
+                isAlive = newEnemyHp > 0,
+                state = if (hpRatio <= enemy.fleeThreshold) NpcState.FLEE else NpcState.AGGRESSIVE
+            )
+
             if (hpRatio <= enemy.fleeThreshold) {
-                enemy.state = NpcState.FLEE
                 logs.add(CombatLogEntry("⚠️ [MORALE BROKEN] ${enemy.name} panicked (HP: $newEnemyHp/${enemy.maxHp})! Fleeing!"))
                 spawnFloatingText("💨 FLEEING!", enemy.x, enemy.y, 0xFFFFD700)
             } else {
-                enemy.state = NpcState.AGGRESSIVE
                 logs.add(CombatLogEntry("🚨 ${enemy.name} is enraged (AGGRESSIVE)!"))
             }
 
@@ -1195,7 +1209,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val updatedEnemies = _uiState.value.activeEnemies.map { if (it.id == enemy.id) enemy else it }
+            val updatedEnemies = _uiState.value.activeEnemies.map { if (it.id == enemy.id) updatedEnemy else it }
             val refreshedQueue = buildTurnCombatQueue(updatedPlayer, updatedEnemies)
 
             if (newPlayerHp == 0 || newTox >= 100) {
@@ -1203,7 +1217,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 _uiState.update {
                     it.copy(
-                        activeCombatEnemy = enemy,
+                        activeCombatEnemy = updatedEnemy,
                         activeEnemies = updatedEnemies,
                         player = updatedPlayer,
                         combatLogs = logs,
@@ -1222,22 +1236,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         when (type) {
             StatusEffectType.ADRENALINE -> {
                 applyStatusEffectToPlayer(StatusEffect(type = StatusEffectType.ADRENALINE, durationTurns = 3, magnitude = 8))
-                logs.add(CombatLogEntry("💉 Injected Combat Adrenaline: +8 ATK for 3 turns!"))
             }
             StatusEffectType.REGENERATION -> {
                 applyStatusEffectToPlayer(StatusEffect(type = StatusEffectType.REGENERATION, durationTurns = 4, magnitude = 7))
-                logs.add(CombatLogEntry("💖 Activated Nano-Regeneration: +7 HP/turn for 4 turns."))
             }
             StatusEffectType.STUN -> {
                 if (enemy != null) {
                     applyStatusEffectToEnemy(enemy.id, StatusEffect(type = StatusEffectType.STUN, durationTurns = 1, magnitude = 1))
-                    logs.add(CombatLogEntry("⚡ Deployed Shock Grenade: ${enemy.name} Stunned for 1 turn!"))
                 }
             }
             StatusEffectType.CORROSION -> {
                 if (enemy != null) {
                     applyStatusEffectToEnemy(enemy.id, StatusEffect(type = StatusEffectType.CORROSION, durationTurns = 3, magnitude = 6))
-                    logs.add(CombatLogEntry("🧪 Launched Acid Chem-Flask: ${enemy.name} armor corroded (-6 DEF)!"))
                 }
             }
             StatusEffectType.POISON -> {
@@ -1260,6 +1270,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val logs = _uiState.value.combatLogs + CombatLogEntry("Defensive Stance: Reinforced shielding (+50% DEF this turn).")
         spawnFloatingText("DEFENSE UP +50%", player.x, player.y, 0xFF4FD1C5)
         _uiState.update { it.copy(combatLogs = logs) }
+        applyStatusEffectToPlayer(StatusEffect(type = StatusEffectType.ADRENALINE, durationTurns = 1, magnitude = 5))
         advanceTurnQueue()
     }
 
@@ -1289,7 +1300,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 combatLogs = logs
             )
         }
-        advanceTurnQueue()
     }
 
     fun equipInventoryItem(itemId: String) {

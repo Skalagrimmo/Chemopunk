@@ -22,7 +22,6 @@ object AsciiShaders {
 
         uniform mat4 u_MVPMatrix;
         uniform float u_Time;
-        uniform vec2 u_ViewportSize;
         uniform vec2 u_MapDimensions;
 
         attribute vec3 a_Position;    // x, y (screen or isometric pos), z (elevation / layer)

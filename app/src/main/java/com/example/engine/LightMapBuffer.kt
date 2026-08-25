@@ -228,7 +228,10 @@ class LightMapBuffer(
             inDirectLight = inDirect,
             isFOWHidden = isHidden,
             shadowFactor = shadowFactor,
-            ambientOcclusion = aoBuffer[idx00]
+            ambientOcclusion = aoBuffer[idx00] * (1f - fx) * (1f - fy) +
+                aoBuffer[idx10] * fx * (1f - fy) +
+                aoBuffer[idx01] * (1f - fx) * fy +
+                aoBuffer[idx11] * fx * fy
         )
     }
 

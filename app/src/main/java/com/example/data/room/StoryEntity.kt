@@ -216,6 +216,13 @@ data class StoryProgress(
 
 /**
  * Relational pairing of a scene node and its child branching choices.
+ *
+ * WARNING: Room @Relation cannot perform composite key joins.
+ * The `choices` field is joined on `nodeId` alone, which is NOT unique across scripts.
+ * This means `choices` may contain entries from OTHER scripts that share the same nodeId.
+ * Always use [getScriptFilteredChoices] to get correctly filtered choices.
+ * Direct access to `.choices` without filtering will produce incorrect results
+ * when multiple scripts define nodes with overlapping nodeIds.
  */
 data class StoryNodeWithChoices(
     @Embedded val node: StorySceneNode,
@@ -225,6 +232,10 @@ data class StoryNodeWithChoices(
     )
     val choices: List<StoryBranchingChoice>
 ) {
+    /**
+     * Returns only the choices that belong to this node's script, filtering out
+     * cross-script leaks caused by the single-column @Relation join.
+     */
     fun getScriptFilteredChoices(): List<StoryBranchingChoice> {
         return choices.filter { it.scriptId == node.scriptId }
     }

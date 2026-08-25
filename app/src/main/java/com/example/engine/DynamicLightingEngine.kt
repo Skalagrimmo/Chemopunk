@@ -43,7 +43,7 @@ object SurfaceNormals {
     val SOUTH_EAST = Vector3(1f, 0f, 0f)   // Right isometric wall facet
     val NORTH_WEST = Vector3(-1f, 0f, 0f)  // Back-left wall facet
     val NORTH_EAST = Vector3(0f, -1f, 0f)  // Back-right wall facet
-    val FLOOR = Vector3(0f, 0f, 1f)        // Flat ground
+    val FLOOR = Vector3(0f, 0f, -1f)       // Flat ground (downward-facing)
 }
 
 /**

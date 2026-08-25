@@ -243,11 +243,15 @@ fun GameScreen(viewModel: GameViewModel) {
 
             // Story / Dialogue Screen (AST Markdown Renderer)
             if (uiState.currentViewMode == ViewMode.STORY_DIALOGUE) {
-                val currentDoc = uiState.currentStoryDocument
-                    ?: com.example.data.narrative.MarkdownNarrativeParser.parseNarrativeDocument(
-                        markdownText = uiState.rawMarkdownContent,
-                        assetFileName = uiState.currentStoryAssetFileName
+                val rawMarkdown = uiState.rawMarkdownContent
+                val assetFile = uiState.currentStoryAssetFileName
+                val parsedDocument = remember(uiState.currentStoryNode, rawMarkdown, assetFile) {
+                    com.example.data.narrative.MarkdownNarrativeParser.parseNarrativeDocument(
+                        markdownText = rawMarkdown,
+                        assetFileName = assetFile
                     )
+                }
+                val currentDoc = uiState.currentStoryDocument ?: parsedDocument
 
                 StoryDialogueScreen(
                     document = currentDoc,

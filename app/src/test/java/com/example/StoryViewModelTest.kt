@@ -13,7 +13,11 @@ import com.example.data.room.StorySceneNode
 import com.example.data.room.StoryScript
 import com.example.viewmodel.SceneTransitionState
 import com.example.viewmodel.StoryViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,6 +45,7 @@ class StoryViewModelTest {
 
     @Before
     fun setup() {
+        Dispatchers.setMain(StandardTestDispatcher())
         context = ApplicationProvider.getApplicationContext()
         storyDb = Room.inMemoryDatabaseBuilder(context, StoryDatabase::class.java)
             .allowMainThreadQueries()
@@ -54,6 +59,7 @@ class StoryViewModelTest {
 
     @After
     fun tearDown() {
+        Dispatchers.resetMain()
         storyDb.close()
         gameDb.close()
     }

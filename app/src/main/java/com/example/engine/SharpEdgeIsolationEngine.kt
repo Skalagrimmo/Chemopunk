@@ -58,10 +58,10 @@ object SharpEdgeIsolationEngine {
             val west  = getTile(mapGrid, gridX - 1, gridY, rows, cols)
             val east  = getTile(mapGrid, gridX + 1, gridY, rows, cols)
 
-            val southEastIsFloor = (south != TileType.WALL)
-            val southWestIsFloor = (east != TileType.WALL)
-            val northEastIsFloor = (west != TileType.WALL)
-            val northWestIsFloor = (north != TileType.WALL)
+            val southEastIsFloor = (east != TileType.WALL)
+            val southWestIsFloor = (south != TileType.WALL)
+            val northEastIsFloor = (north != TileType.WALL)
+            val northWestIsFloor = (west != TileType.WALL)
 
             // Front-facing vertical corner edge (facing the isometric camera)
             if (southEastIsFloor && southWestIsFloor) {

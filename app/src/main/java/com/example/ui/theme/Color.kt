@@ -16,7 +16,7 @@ val PhosphorGreen = Color(0xFF4FD1C5)
 val PhosphorGreenDark = Color(0xFF0F3835)
 val AmberTerminal = Color(0xFFFB923C)
 val CyberCyan = Color(0xFF4FD1C5)
-val AcidYellow = Color(0xFFC084FC)
+val AcidYellow = Color(0xFFE0FF00)
 val ToxicRed = Color(0xFFFF3366)
 
 val TerminalBackground = Color(0xFF0F1115)

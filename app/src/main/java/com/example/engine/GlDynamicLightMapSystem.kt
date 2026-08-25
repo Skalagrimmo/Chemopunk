@@ -389,4 +389,8 @@ class GlDynamicLightMapSystem(
         }
         isInitialized = false
     }
+
+    fun release() {
+        releaseGl()
+    }
 }

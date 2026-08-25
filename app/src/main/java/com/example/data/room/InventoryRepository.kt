@@ -261,11 +261,13 @@ data class ScrapResult(
             return Result.failure(Exception("Insufficient Micro-Circuits ($circuitHave/${recipe.microCircuitCost})"))
         }
 
-        // Deduct materials
-        deductMaterial(CraftingMaterials.SCRAP_METAL, recipe.scrapMetalCost)
-        deductMaterial(CraftingMaterials.CHEM_REAGENT, recipe.chemReagentCost)
-        deductMaterial(CraftingMaterials.BIOGEL_VIAL, recipe.biogelCost)
-        deductMaterial(CraftingMaterials.MICRO_CIRCUIT, recipe.microCircuitCost)
+        // Deduct materials (check return values to prevent crafting race conditions)
+        if (!deductMaterial(CraftingMaterials.SCRAP_METAL, recipe.scrapMetalCost) ||
+            !deductMaterial(CraftingMaterials.CHEM_REAGENT, recipe.chemReagentCost) ||
+            !deductMaterial(CraftingMaterials.BIOGEL_VIAL, recipe.biogelCost) ||
+            !deductMaterial(CraftingMaterials.MICRO_CIRCUIT, recipe.microCircuitCost)) {
+            return Result.failure(Exception("Material deduction failed — crafting aborted"))
+        }
 
         val cleanId = "crafted_${recipe.recipeId}_${System.currentTimeMillis()}"
         val slot = when (recipe.resultType) {
@@ -331,9 +333,11 @@ data class ScrapResult(
             return Result.failure(Exception("Need ${upgradeCost.creditCost} Credits (Have: ${profile.credits} CR)"))
         }
 
-        // Deduct resources
-        deductMaterial(CraftingMaterials.SCRAP_METAL, upgradeCost.scrapCost)
-        deductMaterial(CraftingMaterials.CHEM_REAGENT, upgradeCost.chemCost)
+        // Deduct resources (check return values to prevent upgrade race conditions)
+        if (!deductMaterial(CraftingMaterials.SCRAP_METAL, upgradeCost.scrapCost) ||
+            !deductMaterial(CraftingMaterials.CHEM_REAGENT, upgradeCost.chemCost)) {
+            return Result.failure(Exception("Material deduction failed — upgrade aborted"))
+        }
         profileDao.updateCredits(1, profile.credits - upgradeCost.creditCost)
 
         // Upgrade item
