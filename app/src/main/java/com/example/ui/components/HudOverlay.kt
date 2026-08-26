@@ -73,7 +73,7 @@ fun HudOverlay(
     onOpenSynthesis: () -> Unit = {},
     zoneName: String = "Sector 7",
     factionReps: Map<String, Int> = emptyMap(),
-    companionCount: Int = 0,
+    companions: List<com.example.data.Companion> = emptyList(),
     onTogglePalette: () -> Unit = {},
     onToggleAudioMute: () -> Unit = {},
     isEncumbered: Boolean = false
@@ -199,13 +199,25 @@ fun HudOverlay(
                         }
                     }
 
-                    if (companionCount > 0) {
-                        Text(
-                            text = "⚑ Allies: $companionCount",
-                            color = ImmersiveTeal,
-                            fontSize = 8.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
+                    companions.forEach { cmp ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("⚑ ${cmp.name}", color = ImmersiveTeal, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            Text(
+                                "HP ${cmp.hp}/${cmp.maxHp}",
+                                color = ImmersiveTextMuted,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                "LOY ${cmp.loyalty}",
+                                color = PhosphorGreen,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
 
                     Row(

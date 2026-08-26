@@ -622,21 +622,39 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val revealed = computeFov(obj.x, obj.y, radius = 8) + state.discoveredTiles
                 logs.add(CombatLogEntry("☉ Rescue beacon activated! Extraction forces have been signaled."))
                 val companions = state.companions
+                val player = state.player
+                val allyX = (player.x + 1).coerceAtLeast(0f)
                 val updatedCompanions = if (companions.none { it.id == "vex" }) {
                     logs.add(CombatLogEntry("⚑ Vex, a discharged extraction trooper, joins your squad.", isHeal = true))
-                    companions + com.example.data.Companion(
+                    val allyToken = com.example.data.Enemy(
                         id = "vex",
                         name = "Vex",
                         hp = 60,
                         maxHp = 60,
                         attack = 8,
-                        quip = "On your six."
+                        armor = 4,
+                        toxicityDamage = 0,
+                        asciiGlyph = 'V',
+                        expReward = 0,
+                        lootItemId = null,
+                        x = allyX,
+                        y = player.y,
+                        isAlive = true,
+                        state = NpcState.PATROL,
+                        isAlly = true
                     )
+                    _uiState.update {
+                        it.copy(
+                            discoveredTiles = revealed,
+                            companions = companions + com.example.data.Companion(id = "vex", name = "Vex", hp = 60, maxHp = 60, attack = 8, quip = "On your six."),
+                            activeEnemies = it.activeEnemies + allyToken,
+                            combatLogs = logs
+                        )
+                    }
                 } else {
                     logs.add(CombatLogEntry("⚑ Vex is already with your squad."))
-                    companions
+                    _uiState.update { it.copy(discoveredTiles = revealed, companions = companions, combatLogs = logs) }
                 }
-                _uiState.update { it.copy(discoveredTiles = revealed, companions = updatedCompanions, combatLogs = logs) }
                 spawnFloatingText("BEACON ONLINE", obj.x.toFloat(), obj.y.toFloat(), 0xFF4FD1C5)
             }
             InteractiveObjectType.MERCHANT -> {
@@ -787,10 +805,31 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val tintedLights = _uiState.value.lightSources.map { l ->
             l.copy(intensity = (l.intensity / kotlin.math.sqrt(mult.toDouble())).toFloat())
         }
+        // Persist recruited companions as ally tokens in the new zone.
+        val allyTokens = _uiState.value.companions.map { c ->
+            com.example.data.Enemy(
+                id = c.id,
+                name = c.name,
+                hp = c.hp,
+                maxHp = c.maxHp,
+                attack = c.attack,
+                armor = 4,
+                toxicityDamage = 0,
+                asciiGlyph = 'V',
+                expReward = 0,
+                lootItemId = null,
+                x = (_uiState.value.player.x + 1).coerceAtLeast(0f),
+                y = _uiState.value.player.y,
+                isAlive = true,
+                state = NpcState.PATROL,
+                isAlly = true
+            )
+        }
+        val allEnemies = scaled + allyTokens
         _uiState.update {
             it.copy(
                 currentZoneId = zoneId,
-                activeEnemies = scaled,
+                activeEnemies = allEnemies,
                 lightSources = tintedLights,
                 combatLogs = it.combatLogs + CombatLogEntry("⏏ Zone transit engaged: ${zone.name}. Threat level adjusted.")
             )
@@ -1397,7 +1436,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     id = enemy.id,
                     name = enemy.name,
                     glyph = enemy.asciiGlyph.toString(),
-                    type = CombatantType.ENEMY,
+                    type = if (enemy.isAlly) CombatantType.ALLY else CombatantType.ENEMY,
                     hp = enemy.hp,
                     maxHp = enemy.maxHp,
                     initiative = effectiveSpeed,
@@ -1420,7 +1459,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val finalizedList = allSorted.map { it.copy(isCurrentTurn = it.id == activeId) }
         val isEngaged = enemies.any {
-            it.isAlive && (it.state == NpcState.AGGRESSIVE || Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) <= 5.5)
+            !it.isAlly && it.isAlive && (it.state == NpcState.AGGRESSIVE || Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) <= 5.5)
         }
 
         return TurnCombatQueueState(
@@ -1496,6 +1535,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        // Allied companions act on the player's side: strike a hostile instead of the player.
+        if (enemy.isAlly) {
+            allyAttackTurn(enemyId)
+            return
+        }
+
         val turnResult = npcStateMachineEngine.processNpcTurn(
             npc = enemy,
             player = state.player,
@@ -1553,6 +1598,71 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         refreshAudioAtmosphere()
+    }
+
+    /** Allied companion takes its turn: strikes a hostile (preferring the player's focused target). */
+    private fun allyAttackTurn(allyId: String) {
+        val state = _uiState.value
+        val ally = state.activeEnemies.firstOrNull { it.id == allyId && it.isAlive }
+        if (ally == null) {
+            val refreshed = buildTurnCombatQueue(state.player, state.activeEnemies, state.turnQueueState.roundNumber)
+            _uiState.update { it.copy(turnQueueState = refreshed) }
+            return
+        }
+        val logs = state.combatLogs.toMutableList()
+        val hostiles = state.activeEnemies.filter { !it.isAlly && it.isAlive }
+        if (hostiles.isEmpty()) {
+            logs.add(CombatLogEntry("${ally.name} stands guard — no hostiles remain."))
+            val refreshed = buildTurnCombatQueue(state.player, state.activeEnemies, state.turnQueueState.roundNumber, currentActiveId = allyId)
+            _uiState.update { it.copy(combatLogs = logs, turnQueueState = refreshed) }
+            return
+        }
+        val currentTarget = state.activeCombatEnemy
+        val target = if (currentTarget != null && !currentTarget.isAlly && currentTarget.isAlive && hostiles.any { it.id == currentTarget.id }) {
+            hostiles.first { it.id == currentTarget.id }
+        } else {
+            hostiles.minByOrNull { Math.hypot((it.x - ally.x).toDouble(), (it.y - ally.y).toDouble()) } ?: hostiles.first()
+        }
+        val companion = state.companions.firstOrNull { it.id == allyId }
+        val loyaltyBonus = companion?.loyalty?.div(2) ?: 0
+        val isCrit = Math.random() < 0.20
+        val dmg = ((ally.attack + loyaltyBonus) * (if (isCrit) 1.5f else 1f)).toInt().coerceAtLeast(1)
+        val newHp = (target.hp - dmg).coerceAtLeast(0)
+        logs.add(CombatLogEntry("${ally.name} ${if (isCrit) "CRITS" else "strikes"} ${target.name} for $dmg damage!", isCritical = isCrit))
+        spawnFloatingText(if (isCrit) "-$dmg CRIT!" else "-$dmg", target.x, target.y, 0xFF4FD1C5)
+
+        var updatedEnemies = state.activeEnemies.map { if (it.id == target.id) it.copy(hp = newHp, isAlive = newHp > 0) else it }
+        if (newHp <= 0) {
+            logs.add(CombatLogEntry("${target.name} is down (finished by ${ally.name})."))
+            updatedEnemies = updatedEnemies.filter { it.isAlive }
+            bumpCompanionLoyalty(8)
+        }
+        val remainingHostiles = updatedEnemies.filter { !it.isAlly && it.isAlive }
+        val (endModal, endEnemy) = if (remainingHostiles.isEmpty()) {
+            logs.add(CombatLogEntry("✓ Encounter cleared. ${ally.name}: \"${companion?.quip ?: "Good work."}\""))
+            Pair(ActiveModal.NONE, null)
+        } else {
+            Pair(_uiState.value.activeModal, _uiState.value.activeCombatEnemy)
+        }
+        val refreshed = buildTurnCombatQueue(state.player, updatedEnemies, state.turnQueueState.roundNumber, currentActiveId = allyId)
+        _uiState.update {
+            it.copy(
+                activeEnemies = updatedEnemies,
+                activeModal = endModal,
+                activeCombatEnemy = endEnemy,
+                combatLogs = logs,
+                turnQueueState = refreshed
+            )
+        }
+    }
+
+    /** Small loyalty gain for companions whenever a hostile is defeated (scales their combat edge). */
+    private fun bumpCompanionLoyalty(amount: Int) {
+        val companions = _uiState.value.companions
+        if (companions.isEmpty()) return
+        _uiState.update { st ->
+            st.copy(companions = st.companions.map { c -> c.copy(loyalty = (c.loyalty + amount).coerceAtMost(100)) })
+        }
     }
 
     private fun checkAndApplyPosition(newX: Float, newY: Float) {
@@ -1683,7 +1793,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (_uiState.value.activeModal == ActiveModal.COMBAT) return
         val enemies = _uiState.value.activeEnemies
         val nearEnemy = enemies.filter { enemy ->
-            enemy.isAlive && Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) < 4.0
+            enemy.isAlive && !enemy.isAlly && Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) < 4.0
         }.minByOrNull { enemy -> Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) }
 
         if (nearEnemy != null) {
@@ -1731,8 +1841,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val enemyCorrosion = enemy.statusEffects.filter { it.type == StatusEffectType.CORROSION }.sumOf { it.magnitude }
         val effectiveEnemyArmor = (enemy.armor - enemyCorrosion).coerceAtLeast(0)
 
-        val companionBonus = _uiState.value.companions.sumOf { it.attack }
-        val baseDmg = (player.attackPower + adrenalineBonus + (meleeBonus * 2 * bladeDancerMeleeMult).toInt() + weaponDmg + chipDmg + companionBonus - effectiveEnemyArmor).coerceAtLeast(3)
+        val baseDmg = (player.attackPower + adrenalineBonus + (meleeBonus * 2 * bladeDancerMeleeMult).toInt() + weaponDmg + chipDmg - effectiveEnemyArmor).coerceAtLeast(3)
         // Broken weapons deal reduced damage (in addition to the jam chance above)
         val brokenMult = if (weaponBroken) 0.5f else 1f
         val totalDmg = if (isMiss) 0 else ((if (isCrit) (baseDmg * 1.5f) else baseDmg.toFloat()) * brokenMult).toInt()
@@ -1791,6 +1900,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val refreshedQueue = buildTurnCombatQueue(player, remainingEnemies)
 
             logs.add(CombatLogEntry("Defeated ${enemy.name}! +${enemy.expReward} EXP!"))
+            bumpCompanionLoyalty(5)
             spawnFloatingText("+${enemy.expReward} EXP", enemy.x, enemy.y, 0xFF4FD1C5)
 
             var inv = _uiState.value.inventory.toMutableList()
@@ -1998,8 +2108,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun engageHostiles(target: Enemy) {
         val player = _uiState.value.player
         val all = _uiState.value.activeEnemies.filter { it.isAlive }
-        val near = all.filter { Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) < 4.0 }
-        val engaged = if (near.isNotEmpty()) near else all
+        val hostiles = all.filter { !it.isAlly }
+        val allies = all.filter { it.isAlly }
+        val near = hostiles.filter { Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) < 4.0 }
+        val engaged = if (near.isNotEmpty()) near else hostiles
+        if (engaged.isEmpty()) return
+        val participants = (engaged + allies).distinctBy { it.id }
         val finalTarget = if (engaged.any { it.id == target.id }) {
             target
         } else {
@@ -2007,7 +2121,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         val queue = buildTurnCombatQueue(
             player,
-            engaged,
+            participants,
             round = _uiState.value.turnQueueState.roundNumber,
             currentActiveId = "player"
         )

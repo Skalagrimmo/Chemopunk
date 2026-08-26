@@ -2,7 +2,11 @@ package com.example
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.CombatantType
+import com.example.data.Enemy
+import com.example.data.NpcState
 import com.example.data.Perk
+import com.example.data.Player
 import com.example.data.SkillType
 import com.example.viewmodel.ActiveModal
 import com.example.viewmodel.GameViewModel
@@ -127,5 +131,25 @@ class GameViewModelTest {
         val leave = root.node("greet")!!.options.first { it.action == com.example.data.DialogueAction.CLOSE }
         viewModel.selectDialogueOption(leave)
         assertEquals(ActiveModal.NONE, viewModel.uiState.value.activeModal)
+    }
+
+    @Test
+    fun testCompanionEntersCombatQueueAsAlly() {
+        val ally = Enemy(
+            id = "vex", name = "Vex", hp = 60, maxHp = 60, attack = 8, armor = 4,
+            toxicityDamage = 0, asciiGlyph = 'V', expReward = 0, lootItemId = null,
+            x = 2f, y = 2f, isAlive = true, state = NpcState.PATROL, isAlly = true
+        )
+        val foe = Enemy(
+            id = "mutant_1", name = "Mutant", hp = 30, maxHp = 30, attack = 5, armor = 2,
+            toxicityDamage = 0, asciiGlyph = 'm', expReward = 10, lootItemId = null,
+            x = 3f, y = 2f, isAlive = true
+        )
+        val queue = viewModel.buildTurnCombatQueue(Player(), listOf(ally, foe))
+        val allyCombatant = queue.combatants.firstOrNull { it.id == "vex" }
+        assertNotNull(allyCombatant)
+        assertEquals(CombatantType.ALLY, allyCombatant!!.type)
+        val foeCombatant = queue.combatants.firstOrNull { it.id == "mutant_1" }
+        assertEquals(CombatantType.ENEMY, foeCombatant!!.type)
     }
 }

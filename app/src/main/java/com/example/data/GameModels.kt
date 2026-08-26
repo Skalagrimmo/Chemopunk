@@ -93,6 +93,7 @@ data class Companion(
     val hp: Int = 60,
     val maxHp: Int = 60,
     val attack: Int = 8,
+    val loyalty: Int = 0,
     val quip: String = "On your six."
 )
 
@@ -247,7 +248,8 @@ data class Enemy(
     var detectionRadius: Float = 4.0f,
     var fleeThreshold: Float = 0.30f,
     var turnsInCurrentState: Int = 0,
-    var statusEffects: List<StatusEffect> = emptyList()
+    var statusEffects: List<StatusEffect> = emptyList(),
+    val isAlly: Boolean = false
 )
 
 data class Choice(
@@ -357,7 +359,8 @@ data class CombatLogEntry(
  */
 enum class CombatantType {
     PLAYER,
-    ENEMY
+    ENEMY,
+    ALLY
 }
 
 /**

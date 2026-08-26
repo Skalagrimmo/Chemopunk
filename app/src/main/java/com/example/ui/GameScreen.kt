@@ -348,7 +348,7 @@ fun GameScreen(viewModel: GameViewModel) {
                             playerToxicity = uiState.player.toxicity,
                             playerStatusEffects = uiState.player.statusEffects,
                             queueState = uiState.turnQueueState,
-                            availableTargets = uiState.activeEnemies.filter { it.isAlive },
+                            availableTargets = uiState.activeEnemies.filter { it.isAlive && !it.isAlly },
                             onSelectTarget = { targetId -> viewModel.selectCombatTarget(targetId) },
                             onAttack = { viewModel.attackCombatEnemy() },
                             onDefend = { viewModel.defendCombatTurn() },
@@ -390,7 +390,7 @@ fun GameScreen(viewModel: GameViewModel) {
                         ownedItems = uiState.roomInventory,
                         playerCredits = uiState.characterProfile?.credits ?: uiState.player.credits,
                     factionReps = uiState.factionReps,
-                    companionCount = uiState.companions.size,
+                    companions = uiState.companions,
                         onBuy = { itemId -> viewModel.buyShopItem(itemId) },
                         onSell = { itemId -> viewModel.sellInventoryItem(itemId) },
                         onClose = { viewModel.closeModal() }
