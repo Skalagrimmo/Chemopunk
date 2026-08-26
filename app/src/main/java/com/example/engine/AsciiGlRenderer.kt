@@ -34,6 +34,7 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
         val player: Player = Player(),
         val enemies: List<Enemy> = emptyList(),
         val lightSources: List<LightSource> = emptyList(),
+        val interactiveObjects: Map<Pair<Int, Int>, com.example.data.InteractiveObject> = emptyMap(),
         val selectedTile: Pair<Int, Int>? = null,
         val discoveredTiles: Set<Pair<Int, Int>> = emptySet(),
         val floatingTexts: List<FloatingText> = emptyList(),
@@ -44,7 +45,8 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
         val shakeStartTime: Long = 0L,
         val zoomLevel: Float = 1.05f,
         val scanlineIntensity: Float = 0.55f,
-        val ditherStrength: Float = 1.0f
+        val ditherStrength: Float = 1.0f,
+        val enableSubPixel: Boolean = false
     )
 
     private val stateLock = Any()
@@ -54,6 +56,7 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
     // OpenGL Matrices & Shader Handles
     private var programId = 0
     private var fontAtlasTextureId = 0
+    private var subPixelAtlasTextureId = 0
 
     private val mvpMatrix = FloatArray(16)
     private val projectionMatrix = FloatArray(16)
@@ -63,6 +66,8 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
     private var uTimeLoc = -1
     private var uViewportSizeLoc = -1
     private var uFontAtlasLoc = -1
+    private var uSubPixelAtlasLoc = -1
+    private var uRenderModeLoc = -1
     private var uLightMapLoc = -1
     private var uUseLightMapLoc = -1
     private var uScanlineIntensityLoc = -1
@@ -107,6 +112,7 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
     private val lightMapBuffer = LightMapBuffer(width = 32, height = 32, lightingEngine = lightingEngine)
     val dynamicLightMapSystem = GlDynamicLightMapSystem(mapWidth = 32, mapHeight = 32)
     private val characterBuffer = AsciiCharacterBuffer(maxQuads = 12288)
+    private val subPixelBuffer = AsciiCharacterBuffer(maxQuads = 8192)
     private val activeLightsBuffer = mutableListOf<LightSource>()
     val mesh3dRenderer = Ascii3dMeshRenderer()
 
@@ -134,6 +140,8 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
         uTimeLoc = GLES20.glGetUniformLocation(programId, "u_Time")
         uViewportSizeLoc = GLES20.glGetUniformLocation(programId, "u_ViewportSize")
         uFontAtlasLoc = GLES20.glGetUniformLocation(programId, "u_FontAtlas")
+        uSubPixelAtlasLoc = GLES20.glGetUniformLocation(programId, "u_SubPixelAtlas")
+        uRenderModeLoc = GLES20.glGetUniformLocation(programId, "u_RenderMode")
         uLightMapLoc = GLES20.glGetUniformLocation(programId, "u_LightMap")
         uUseLightMapLoc = GLES20.glGetUniformLocation(programId, "u_UseLightMap")
         uScanlineIntensityLoc = GLES20.glGetUniformLocation(programId, "u_ScanlineIntensity")
@@ -168,6 +176,9 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
 
         // Generate 256x256 Font Atlas texture
         fontAtlasTextureId = FontAtlasGenerator.createFontAtlasTexture()
+
+        // Generate sub-pixel glyph atlas texture (64 enhanced glyphs)
+        subPixelAtlasTextureId = SubPixelGlyphAtlas.createSubPixelAtlasTexture()
 
         // Initialize GPU dynamic light map texture
         dynamicLightMapSystem.initGl()
@@ -358,10 +369,10 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
             GLES20.glVertexAttribPointer(aEdgeParamsLoc, 4, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, floatBuffer)
         }
 
-        // Execute GPU Draw Call
+        // Execute GPU Draw Call (main geometry)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
 
-        // Cleanup Attribute Pointers
+        // Cleanup Attribute Pointers (main geometry)
         GLES20.glDisableVertexAttribArray(aPositionLoc)
         GLES20.glDisableVertexAttribArray(aTexCoordLoc)
         GLES20.glDisableVertexAttribArray(aFgColorLoc)
@@ -371,10 +382,75 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
         if (aEdgeParamsLoc != -1) {
             GLES20.glDisableVertexAttribArray(aEdgeParamsLoc)
         }
+
+        // ── Sub-Pixel Render Pass ──
+        if (currentSnapshot.enableSubPixel && subPixelBuffer.vertexCount > 0) {
+            val spVertexCount = subPixelBuffer.vertexCount
+            val spFloatBuffer = subPixelBuffer.floatBuffer
+
+            // Bind sub-pixel atlas to texture unit 0 and set render mode
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, subPixelAtlasTextureId)
+            GLES20.glUniform1i(uFontAtlasLoc, 0)
+            if (uRenderModeLoc != -1) {
+                GLES20.glUniform1i(uRenderModeLoc, 1)
+            }
+
+            // Bind vertex attributes for sub-pixel buffer
+            GLES20.glEnableVertexAttribArray(aPositionLoc)
+            spFloatBuffer.position(AsciiCharacterBuffer.POS_OFFSET)
+            GLES20.glVertexAttribPointer(aPositionLoc, 3, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, spFloatBuffer)
+
+            GLES20.glEnableVertexAttribArray(aTexCoordLoc)
+            spFloatBuffer.position(AsciiCharacterBuffer.TEX_OFFSET)
+            GLES20.glVertexAttribPointer(aTexCoordLoc, 2, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, spFloatBuffer)
+
+            GLES20.glEnableVertexAttribArray(aFgColorLoc)
+            spFloatBuffer.position(AsciiCharacterBuffer.FG_OFFSET)
+            GLES20.glVertexAttribPointer(aFgColorLoc, 4, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, spFloatBuffer)
+
+            GLES20.glEnableVertexAttribArray(aBgColorLoc)
+            spFloatBuffer.position(AsciiCharacterBuffer.BG_OFFSET)
+            GLES20.glVertexAttribPointer(aBgColorLoc, 4, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, spFloatBuffer)
+
+            GLES20.glEnableVertexAttribArray(aLightParamsLoc)
+            spFloatBuffer.position(AsciiCharacterBuffer.LIGHT_PARAMS_OFFSET)
+            GLES20.glVertexAttribPointer(aLightParamsLoc, 4, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, spFloatBuffer)
+
+            GLES20.glEnableVertexAttribArray(aLightColorLoc)
+            spFloatBuffer.position(AsciiCharacterBuffer.LIGHT_COLOR_OFFSET)
+            GLES20.glVertexAttribPointer(aLightColorLoc, 3, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, spFloatBuffer)
+
+            if (aEdgeParamsLoc != -1) {
+                GLES20.glEnableVertexAttribArray(aEdgeParamsLoc)
+                spFloatBuffer.position(AsciiCharacterBuffer.EDGE_PARAMS_OFFSET)
+                GLES20.glVertexAttribPointer(aEdgeParamsLoc, 4, GLES20.GL_FLOAT, false, AsciiCharacterBuffer.VERTEX_STRIDE, spFloatBuffer)
+            }
+
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, spVertexCount)
+
+            GLES20.glDisableVertexAttribArray(aPositionLoc)
+            GLES20.glDisableVertexAttribArray(aTexCoordLoc)
+            GLES20.glDisableVertexAttribArray(aFgColorLoc)
+            GLES20.glDisableVertexAttribArray(aBgColorLoc)
+            GLES20.glDisableVertexAttribArray(aLightParamsLoc)
+            GLES20.glDisableVertexAttribArray(aLightColorLoc)
+            if (aEdgeParamsLoc != -1) {
+                GLES20.glDisableVertexAttribArray(aEdgeParamsLoc)
+            }
+
+            // Restore render mode and font atlas
+            if (uRenderModeLoc != -1) {
+                GLES20.glUniform1i(uRenderModeLoc, 0)
+            }
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fontAtlasTextureId)
+        }
     }
 
     private fun buildWorldGeometry(animTime: Float) {
         characterBuffer.beginWrite()
+        subPixelBuffer.beginWrite()
 
         val snap = currentSnapshot
         val mapGrid = snap.mapGrid
@@ -583,6 +659,11 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
             }
         }
 
+        // ── Sub-Pixel Tile Generation Pass ──
+        if (snap.enableSubPixel) {
+            renderSubPixelTiles(mapGrid, player, snap.enemies, snap.interactiveObjects, snap.lightSources, centerX, centerY, zoom, animTime)
+        }
+
         // Render Floating Damage/Telemetry Texts
         val curTime = System.currentTimeMillis()
         snap.floatingTexts.forEach { ft ->
@@ -612,6 +693,147 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
 
         // Finalize geometry back-buffer and atomic swap to front buffer
         characterBuffer.finishWrite()
+        subPixelBuffer.finishWrite()
+    }
+
+    /**
+     * Renders tiles using the sub-pixel SDF pipeline into the sub-pixel buffer.
+     * Each cell's primitives are evaluated at 6 sub-pixel sample points to produce
+     * smooth intensity fields that map to the 64-glyph sub-pixel atlas.
+     */
+    private fun renderSubPixelTiles(
+        mapGrid: List<List<TileType>>,
+        player: Player,
+        enemies: List<Enemy>,
+        interactiveObjects: Map<Pair<Int, Int>, com.example.data.InteractiveObject>,
+        lightSources: List<LightSource>,
+        centerX: Float,
+        centerY: Float,
+        zoom: Float,
+        animTime: Float
+    ) {
+        val rows = mapGrid.size
+        if (rows == 0) return
+        val cols = mapGrid[0].size
+        val camX = player.x
+        val camY = player.y
+
+        // Generate render primitives for the visible region
+        val primitives = PrimitiveGenerator.generatePrimitives(
+            mapGrid = mapGrid,
+            player = player,
+            enemies = enemies,
+            interactiveObjects = interactiveObjects,
+            tileSize = 1f,
+            viewMinX = 0,
+            viewMinY = 0,
+            viewMaxX = cols,
+            viewMaxY = rows
+        )
+
+        // Depth-sorted rendering matching the main pass
+        val maxDepth = rows + cols
+        for (depth in 0..maxDepth) {
+            for (r in 0 until rows) {
+                val c = depth - r
+                if (c !in 0 until cols) continue
+
+                val cell = primitives.firstOrNull { it.gridX == c && it.gridY == r } ?: continue
+                if (cell.primitives.isEmpty()) continue
+
+                val tile = mapGrid[r][c]
+                val elevation = if (tile == TileType.WALL) 0.5f else 0f
+
+                val lighting = lightMapBuffer.getTileLighting(c, r, elevation)
+                if (lighting.isFOWHidden) continue
+
+                val (baseX, baseY) = characterBuffer.gridToIso(
+                    c.toFloat(), r.toFloat(), elevation,
+                    centerX, centerY, camX, camY, zoom
+                )
+                if (baseX < -60f || baseX > surfaceWidth + 60f || baseY < -60f || baseY > surfaceHeight + 60f) continue
+
+                // Compute cell colors with lighting
+                val worldX = c + 0.5f
+                val worldY = r + 0.5f
+                val baseColor = CellColorComputer.tileBaseColor(tile)
+                val litColor = CellColorComputer.applyLighting(baseColor, worldX, worldY, lightSources)
+
+                // Sample intensity field for all primitives in this cell
+                val cellW = 1f
+                val cellH = 1f
+
+                // Accumulate SDF layers
+                val sdfLayers = cell.primitives.map { prim ->
+                    Triple(prim.sdf, prim.weight, prim.blendMode)
+                }
+                val intensityField = IntensityFieldGenerator.accumulateLayers(
+                    cellMinX = 0f, cellMinY = 0f, cellW = cellW, cellH = cellH,
+                    edgeSoftness = 0.02f, layers = sdfLayers
+                )
+
+                // Map to sub-pixel glyph pattern
+                val patternIndex = intensityField.toPatternIndex()
+
+                // Skip empty cells (all zeros)
+                if (patternIndex == 0) continue
+
+                // Look up UV coordinates in the sub-pixel atlas
+                val uv = SubPixelGlyphAtlas.glyphUvs[patternIndex]
+
+                // Use the dominant primitive's color for the cell
+                val dominantPrim = cell.primitives.maxByOrNull { it.priority * it.weight }!!
+                val blendedColor = CellColorComputer.blendPrimitiveColor(
+                    litColor, dominantPrim.colorR, dominantPrim.colorG, dominantPrim.colorB,
+                    dominantPrim.weight, dominantPrim.glow
+                )
+
+                val halfW = 20f * zoom
+                val halfH = 14f * zoom
+
+                // Push sub-pixel quad to the sub-pixel buffer
+                subPixelBuffer.pushQuad(
+                    x0 = baseX - halfW, y0 = baseY - halfH,
+                    x1 = baseX + halfW, y1 = baseY - halfH,
+                    x2 = baseX + halfW, y2 = baseY + halfH,
+                    x3 = baseX - halfW, y3 = baseY + halfH,
+                    z = elevation + 0.01f,
+                    char = ' ',  // ignored; UVs are overridden below
+                    fgR = blendedColor.fgR, fgG = blendedColor.fgG, fgB = blendedColor.fgB, fgA = blendedColor.fgA,
+                    bgR = blendedColor.bgR, bgG = blendedColor.bgG, bgB = blendedColor.bgB, bgA = blendedColor.bgA,
+                    lightIntensity = blendedColor.lightIntensity,
+                    dither = 1.0f,
+                    glow = if (blendedColor.glow > 0.3f) 1.0f else 0.0f,
+                    wave = if (tile == TileType.TOXIC_POOL) 1.0f else 0.0f,
+                    tintR = lighting.colorR / 255f, tintG = lighting.colorG / 255f, tintB = lighting.colorB / 255f,
+                    gridX = c.toFloat(), gridY = r.toFloat()
+                )
+
+                // Override the last 6 vertices' UVs with sub-pixel atlas coordinates
+                // The pushQuad method sets UVs via FontAtlasGenerator; we need to patch them
+                patchLastQuadUvs(uv)
+            }
+        }
+    }
+
+    /**
+     * Patches the UV coordinates of the last pushed quad in the sub-pixel buffer
+     * to point to the sub-pixel atlas instead of the default font atlas.
+     */
+    private fun patchLastQuadUvs(uv: FloatArray) {
+        val arr = subPixelBuffer.rawArray
+        val baseIdx = subPixelBuffer.currentFloatIdx - AsciiCharacterBuffer.FLOATS_PER_QUAD
+        for (v in 0 until AsciiCharacterBuffer.VERTICES_PER_QUAD) {
+            val vIdx = baseIdx + v * AsciiCharacterBuffer.FLOATS_PER_VERTEX + AsciiCharacterBuffer.TEX_OFFSET
+            when (v) {
+                0 -> { arr[vIdx] = uv[0]; arr[vIdx + 1] = uv[1] }
+                1 -> { arr[vIdx] = uv[2]; arr[vIdx + 1] = uv[1] }
+                2 -> { arr[vIdx] = uv[2]; arr[vIdx + 1] = uv[3] }
+                3 -> { arr[vIdx] = uv[0]; arr[vIdx + 1] = uv[1] }
+                4 -> { arr[vIdx] = uv[2]; arr[vIdx + 1] = uv[3] }
+                5 -> { arr[vIdx] = uv[0]; arr[vIdx + 1] = uv[3] }
+            }
+        }
     }
 
     private fun renderIsoTileGl(
@@ -933,6 +1155,10 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
         if (fontAtlasTextureId != 0) {
             GLES20.glDeleteTextures(1, intArrayOf(fontAtlasTextureId), 0)
             fontAtlasTextureId = 0
+        }
+        if (subPixelAtlasTextureId != 0) {
+            GLES20.glDeleteTextures(1, intArrayOf(subPixelAtlasTextureId), 0)
+            subPixelAtlasTextureId = 0
         }
         dynamicLightMapSystem.release()
         mesh3dRenderer.release()

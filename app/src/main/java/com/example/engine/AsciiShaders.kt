@@ -68,6 +68,8 @@ object AsciiShaders {
         precision mediump float;
 
         uniform sampler2D u_FontAtlas;
+        uniform sampler2D u_SubPixelAtlas;
+        uniform int u_RenderMode;        // 0 = font atlas, 1 = sub-pixel atlas
         uniform sampler2D u_LightMap;
         uniform int u_UseLightMap;
         uniform float u_Time;
@@ -132,8 +134,13 @@ object AsciiShaders {
         }
 
         void main() {
-            // Sample glyph mask from font atlas texture
-            vec4 atlasSample = texture2D(u_FontAtlas, v_TexCoord);
+            // Sample glyph mask: render mode selects atlas texture
+            vec4 atlasSample;
+            if (u_RenderMode == 1) {
+                atlasSample = texture2D(u_SubPixelAtlas, v_TexCoord);
+            } else {
+                atlasSample = texture2D(u_FontAtlas, v_TexCoord);
+            }
             float rawGlyphMask = max(atlasSample.a, atlasSample.r);
 
             // 1. High-Precision Adaptive Glyph Sharpness

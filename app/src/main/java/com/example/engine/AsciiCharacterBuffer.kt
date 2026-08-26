@@ -64,6 +64,11 @@ class AsciiCharacterBuffer(maxQuads: Int = 12288) {
     val floatBuffer: FloatBuffer
         get() = if (readBufferIdx == 0) floatBufferA else floatBufferB
 
+    // Internal accessors for sub-pixel UV patching
+    internal val writeBufferIndex: Int get() = writeBufferIdx
+    internal val rawArray: FloatArray get() = if (writeBufferIdx == 0) rawArrayA else rawArrayB
+    internal val currentFloatIdx: Int get() = currentFloatIndex
+
     /**
      * Begins writing geometry into the current back-buffer.
      */

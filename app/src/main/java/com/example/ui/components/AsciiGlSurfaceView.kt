@@ -236,6 +236,7 @@ class AsciiGlSurfaceView @JvmOverloads constructor(
         player: Player,
         enemies: List<Enemy>,
         lightSources: List<LightSource>,
+        interactiveObjects: Map<Pair<Int, Int>, com.example.data.InteractiveObject> = emptyMap(),
         selectedTile: Pair<Int, Int>?,
         discoveredTiles: Set<Pair<Int, Int>>,
         floatingTexts: List<FloatingText>,
@@ -243,7 +244,8 @@ class AsciiGlSurfaceView @JvmOverloads constructor(
         scanlineIntensity: Float = 0.55f,
         ditherStrength: Float = 1.0f,
         screenShakeIntensity: Float = 0f,
-        screenShakeStartTime: Long = 0L
+        screenShakeStartTime: Long = 0L,
+        enableSubPixel: Boolean = false
     ) {
         playerX = player.x
         playerY = player.y
@@ -253,6 +255,7 @@ class AsciiGlSurfaceView @JvmOverloads constructor(
             player = player,
             enemies = enemies,
             lightSources = lightSources,
+            interactiveObjects = interactiveObjects,
             selectedTile = selectedTile,
             discoveredTiles = discoveredTiles,
             floatingTexts = floatingTexts,
@@ -263,7 +266,8 @@ class AsciiGlSurfaceView @JvmOverloads constructor(
             shakeStartTime = screenShakeStartTime,
             zoomLevel = zoomLevel,
             scanlineIntensity = scanlineIntensity,
-            ditherStrength = ditherStrength
+            ditherStrength = ditherStrength,
+            enableSubPixel = enableSubPixel
         )
         renderer.updateState(snapshot)
     }

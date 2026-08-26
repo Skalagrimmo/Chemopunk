@@ -60,12 +60,14 @@ fun AsciiGlIsometricView(
     player: Player,
     enemies: List<Enemy>,
     lightSources: List<LightSource> = emptyList(),
+    interactiveObjects: Map<Pair<Int, Int>, com.example.data.InteractiveObject> = emptyMap(),
     selectedTile: Pair<Int, Int>?,
     discoveredTiles: Set<Pair<Int, Int>>,
     floatingTexts: List<FloatingText>,
     paletteIndex: Int,
     screenShakeIntensity: Float = 0f,
     screenShakeStartTime: Long = 0L,
+    enableSubPixel: Boolean = false,
     onTileTapped: (Int, Int) -> Unit,
     onLongPress: (Float, Float, Int, Int) -> Unit = { _, _, _, _ -> },
     onDropFlare: () -> Unit = {},
@@ -120,6 +122,7 @@ fun AsciiGlIsometricView(
                     player = player,
                     enemies = enemies,
                     lightSources = lightSources,
+                    interactiveObjects = interactiveObjects,
                     selectedTile = selectedTile,
                     discoveredTiles = discoveredTiles,
                     floatingTexts = floatingTexts,
@@ -127,7 +130,8 @@ fun AsciiGlIsometricView(
                     scanlineIntensity = scanlineIntensity,
                     ditherStrength = ditherStrength,
                     screenShakeIntensity = screenShakeIntensity,
-                    screenShakeStartTime = screenShakeStartTime
+                    screenShakeStartTime = screenShakeStartTime,
+                    enableSubPixel = enableSubPixel
                 )
             },
             modifier = Modifier
