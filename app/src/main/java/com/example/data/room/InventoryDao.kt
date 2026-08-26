@@ -99,3 +99,41 @@ interface CharacterProfileDao {
     @Query("UPDATE character_profiles SET equippedArmorId = :armorId, lastUpdated = :timestamp WHERE profileId = :profileId")
     suspend fun updateEquippedArmor(profileId: Int = 1, armorId: String?, timestamp: Long = System.currentTimeMillis())
 }
+
+@Dao
+interface PerkDao {
+
+    @Query("SELECT * FROM perks ORDER BY tier ASC, name ASC")
+    fun getAcquiredPerks(): Flow<List<PerkEntity>>
+
+    @Query("SELECT * FROM perks WHERE perkId = :perkId LIMIT 1")
+    suspend fun findPerk(perkId: String): PerkEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun acquirePerk(perk: PerkEntity)
+
+    @Query("DELETE FROM perks")
+    suspend fun clearAllPerks()
+}
+
+@Dao
+interface ShopDao {
+
+    @Query("SELECT * FROM shop_items ORDER BY type ASC, buyPrice ASC")
+    fun getShopItems(): Flow<List<NpcShopEntity>>
+
+    @Query("SELECT * FROM shop_items WHERE itemId = :itemId LIMIT 1")
+    suspend fun findShopItem(itemId: String): NpcShopEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertShopItem(item: NpcShopEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllShopItems(items: List<NpcShopEntity>)
+
+    @Query("UPDATE shop_items SET stock = :newStock WHERE itemId = :itemId")
+    suspend fun updateStock(itemId: String, newStock: Int)
+
+    @Query("DELETE FROM shop_items")
+    suspend fun clearAllShopItems()
+}

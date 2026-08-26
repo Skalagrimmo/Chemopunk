@@ -15,17 +15,20 @@ import com.example.data.ItemType
 import com.example.data.MarkdownParser
 import com.example.data.NpcState
 import com.example.data.Player
+import com.example.data.Perk
 import com.example.data.Quest
 import com.example.data.QuestObjective
 import com.example.data.QuestStatus
 import com.example.data.StatusEffect
 import com.example.data.StatusEffectType
+import com.example.data.SkillType
 import com.example.data.StoryNode
 import com.example.data.TileType
 import com.example.data.TurnCombatQueueState
 import com.example.data.TurnPhase
 import com.example.data.room.BranchingChoiceEntity
 import com.example.data.room.CharacterProfileEntity
+import com.example.data.room.CraftingMaterials
 import com.example.data.room.EquipSlot
 import com.example.data.room.GameDatabase
 import com.example.data.room.GearCombatStats
@@ -73,9 +76,16 @@ data class GameUiState(
     val combatLogs: List<CombatLogEntry> = emptyList(),
     val interactiveObjects: Map<Pair<Int, Int>, InteractiveObject> = emptyMap(),
     val quests: List<Quest> = emptyList(),
+    val currentZoneId: String = "sector7",
     val killCount: Int = 0,
     val itemsCollected: Int = 0,
     val isEncumbered: Boolean = false,
+    val skills: Map<com.example.data.SkillType, Int> = emptyMap(),
+    val unspentSkillPoints: Int = 0,
+    val unspentPerkPoints: Int = 0,
+    val acquiredPerks: List<com.example.data.Perk> = emptyList(),
+    val pendingPerkChoices: List<com.example.data.Perk> = emptyList(),
+    val shopItems: List<com.example.data.room.NpcShopEntity> = emptyList(),
     val screenShakeIntensity: Float = 0f,
     val screenShakeStartTime: Long = 0L,
     val currentViewMode: ViewMode = ViewMode.ISOMETRIC_WORLD,
@@ -102,7 +112,11 @@ enum class ActiveModal {
     NONE,
     INVENTORY,
     COMBAT,
-    QUEST_LOG
+    QUEST_LOG,
+    SKILLS,
+    PERK_SELECT,
+    TRADE,
+    SYNTHESIS
 }
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -119,7 +133,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val database = GameDatabase.getDatabase(application)
     val inventoryRepository = InventoryRepository(
         inventoryDao = database.inventoryDao(),
-        profileDao = database.characterProfileDao()
+        profileDao = database.characterProfileDao(),
+        perkDao = database.perkDao(),
+        shopDao = database.shopDao()
     )
     val storyNarrativeRepository = StoryNarrativeRepository(
         storyDao = database.storyNarrativeDao(),
@@ -201,6 +217,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             )
         }
+        if (floorTiles.size >= 5) {
+            val mPos = floorTiles[floorTiles.size / 2]
+            if (mPos !in result.keys) {
+                mutable[mPos.second][mPos.first] = TileType.INTERACTIVE
+                result[mPos] = InteractiveObject(
+                    id = "io_merchant_${mPos.first}_${mPos.second}",
+                    type = InteractiveObjectType.MERCHANT,
+                    x = mPos.first,
+                    y = mPos.second,
+                    description = "Roving black-market vendor. Buy gear, sell salvage."
+                )
+            }
+        }
+        if (floorTiles.size >= 6) {
+            val zPos = floorTiles[floorTiles.size - 1]
+            if (zPos !in result.keys) {
+                mutable[zPos.second][zPos.first] = TileType.INTERACTIVE
+                result[zPos] = InteractiveObject(
+                    id = "io_zoneexit_${zPos.first}_${zPos.second}",
+                    type = InteractiveObjectType.ZONE_EXIT,
+                    x = zPos.first,
+                    y = zPos.second,
+                    description = "Zone transit gate. Step through to reach the next sector."
+                )
+            }
+        }
         return Pair(mutable.map { it.toList() }, result)
     }
 
@@ -237,6 +279,157 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             .toFloat()
         return gearWeight > maxCarryWeight
     }
+
+    // region Skills & Perk System
+
+    private fun hasPerk(perkId: String): Boolean =
+        _uiState.value.acquiredPerks.any { it.perkId == perkId }
+
+    /** exp (leftover within current level) required to advance from `level` to `level+1`. */
+    private fun expForLevel(level: Int): Int = level * 100
+
+    /** Award experience and trigger any pending level-ups. Returns a level-up log message (empty if none). */
+    fun grantExp(amount: Int): String {
+        val current = _uiState.value.player
+        _uiState.update { it.copy(player = it.player.copy(exp = current.exp + amount)) }
+        viewModelScope.launch { inventoryRepository.addExperience(amount) }
+        return checkLevelUp()
+    }
+
+    private fun checkLevelUp(): String {
+        var exp = _uiState.value.player.exp
+        var level = _uiState.value.player.level
+        var skillPoints = 0
+        var perkPoints = 0
+        while (exp >= expForLevel(level)) {
+            exp -= expForLevel(level)
+            level += 1
+            skillPoints += 1
+            if (level % 2 == 0) perkPoints += 1
+        }
+        if (level <= _uiState.value.player.level) {
+            _uiState.update { it.copy(player = it.player.copy(exp = exp)) }
+            return ""
+        }
+        viewModelScope.launch { inventoryRepository.grantLevelRewards(skillPoints, perkPoints) }
+        _uiState.update { it.copy(player = it.player.copy(level = level, exp = exp)) }
+        if (perkPoints > 0) rollPerkChoices()
+        return "LEVEL UP! Reached level $level. +$skillPoints skill point(s), +$perkPoints perk point(s)."
+    }
+
+    private fun rollPerkChoices() {
+        val owned = _uiState.value.acquiredPerks.map { it.perkId }.toSet()
+        val available = Perk.POOL.filter { it.perkId !in owned }
+        val choices = if (available.size <= 3) available else available.shuffled().take(3)
+        _uiState.update { it.copy(pendingPerkChoices = choices, activeModal = ActiveModal.PERK_SELECT) }
+    }
+
+    fun confirmPerkChoice(perk: Perk) {
+        viewModelScope.launch { inventoryRepository.acquirePerk(perk) }
+        _uiState.update {
+            val bumpedPlayer = if (perk.perkId == "iron_lungs") {
+                it.player.copy(maxToxicity = it.player.maxToxicity + 25)
+            } else {
+                it.player
+            }
+            it.copy(
+                pendingPerkChoices = emptyList(),
+                activeModal = ActiveModal.NONE,
+                acquiredPerks = it.acquiredPerks + perk,
+                player = bumpedPlayer
+            )
+        }
+    }
+
+    fun cancelPerkChoices() {
+        _uiState.update { it.copy(pendingPerkChoices = emptyList(), activeModal = ActiveModal.NONE) }
+    }
+
+    fun allocateSkillPoint(skill: SkillType) {
+        viewModelScope.launch { inventoryRepository.allocateSkillPoint(skill) }
+    }
+
+    fun openSkillsModal() = openModal(ActiveModal.SKILLS)
+
+    fun buyShopItem(itemId: String) {
+        val creditsBefore = _uiState.value.player.credits
+        viewModelScope.launch {
+            val boughtId = inventoryRepository.buyShopItem(itemId)
+            if (boughtId != null) {
+                val profile = inventoryRepository.characterProfile.firstOrNull()
+                val newCredits = profile?.credits ?: creditsBefore
+                _uiState.update {
+                    it.copy(
+                        player = it.player.copy(credits = newCredits),
+                        combatLogs = it.combatLogs + CombatLogEntry("Purchased item from vendor.", isHeal = true)
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(combatLogs = it.combatLogs + CombatLogEntry("Transaction failed — insufficient credits or out of stock."))
+                }
+            }
+        }
+    }
+
+    fun sellInventoryItem(itemId: String) {
+        viewModelScope.launch {
+            val success = inventoryRepository.sellInventoryItem(itemId)
+            if (success) {
+                val profile = inventoryRepository.characterProfile.firstOrNull()
+                val newCredits = profile?.credits ?: _uiState.value.player.credits
+                _uiState.update {
+                    it.copy(
+                        player = it.player.copy(credits = newCredits),
+                        combatLogs = it.combatLogs + CombatLogEntry("Sold item to vendor for credits.", isHeal = true)
+                    )
+                }
+            }
+        }
+    }
+
+    fun openSynthesisModal() = openModal(ActiveModal.SYNTHESIS)
+
+    fun synthesizeChem(chemReagents: Int, bioGel: Int) {
+        if (chemReagents <= 0) return
+        viewModelScope.launch {
+            val haveChem = inventoryRepository.getMaterialQuantity(CraftingMaterials.CHEM_REAGENT)
+            val haveBio = inventoryRepository.getMaterialQuantity(CraftingMaterials.BIOGEL_VIAL)
+            if (haveChem < chemReagents || haveBio < bioGel) {
+                _uiState.update {
+                    it.copy(combatLogs = it.combatLogs + CombatLogEntry("⚗ Synthesis failed — insufficient reagents (have $haveChem chem / $haveBio biogel)."))
+                }
+                return@launch
+            }
+            inventoryRepository.addMaterialQuantity(CraftingMaterials.CHEM_REAGENT, -chemReagents)
+            inventoryRepository.addMaterialQuantity(CraftingMaterials.BIOGEL_VIAL, -bioGel)
+            val science = _uiState.value.skills[SkillType.SCIENCE] ?: 0
+            val balance = if (bioGel > 0) (chemReagents.toFloat() / (chemReagents + bioGel)) else 1f
+            val potency = (35 + science * 4 + (balance * 25).toInt()).coerceAtLeast(10)
+            val isPurge = bioGel >= chemReagents
+            val name = if (isPurge) "Toxic Purge Chem" else "Battle Stim Chem"
+            val item = Item(
+                id = "synth_chem_${System.currentTimeMillis()}",
+                name = name,
+                type = ItemType.CONSUMABLE,
+                healHp = potency,
+                reduceToxicity = if (isPurge) potency else (potency / 2)
+            )
+            inventoryRepository.addItemFromDomain(item, rarity = ItemRarity.UNCOMMON, weightKg = 0.3f)
+            _uiState.update {
+                it.copy(
+                    combatLogs = it.combatLogs + CombatLogEntry(
+                        "⚗ Synthesized $name (potency $potency HP) from $chemReagents reagent(s) + $bioGel biogel.",
+                        isHeal = true
+                    )
+                )
+            }
+            closeModal()
+        }
+    }
+
+    // endregion
+
 
     private fun updateQuestsProgress(state: GameUiState): List<Quest> {
         return state.quests.map { quest ->
@@ -286,6 +479,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (grid.isEmpty() || obj.y !in grid.indices || obj.x !in grid[obj.y].indices) return
         if (obj.isUsed) return
 
+        // Locked objects require the Lockpicking skill
+        if (obj.locked && (_uiState.value.skills[SkillType.LOCKPICKING] ?: 0) <= 0) {
+            val logs = state.combatLogs.toMutableList()
+            logs.add(CombatLogEntry("🔒 ${obj.type.label} is locked. Requires the Lockpicking skill to bypass."))
+            _uiState.update { it.copy(combatLogs = logs) }
+            return
+        }
+
         val logs = state.combatLogs.toMutableList()
         var player = state.player
         val px = player.x
@@ -302,9 +503,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         when (obj.type) {
             InteractiveObjectType.TERMINAL -> {
                 val credits = 15
-                val exp = 5
-                player = player.copy(credits = player.credits + credits, exp = player.exp + exp)
-                logs.add(CombatLogEntry("⌨ Terminal accessed: decrypted Sector 7 logs. +$credits CR, +$exp EXP.", isCritical = false, isHeal = true))
+                val levelUpMsg = grantExp(5)
+                if (levelUpMsg.isNotBlank()) logs.add(CombatLogEntry(levelUpMsg, isHeal = true))
+                player = _uiState.value.player.copy(credits = _uiState.value.player.credits + credits)
+                logs.add(CombatLogEntry("⌨ Terminal accessed: decrypted Sector 7 logs. +$credits CR, +5 EXP.", isHeal = true))
                 spawnFloatingText("+${credits} CR", obj.x.toFloat(), obj.y.toFloat(), 0xFFFFD700)
             }
             InteractiveObjectType.LOCKER -> {
@@ -340,6 +542,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 logs.add(CombatLogEntry("☉ Rescue beacon activated! Extraction forces have been signaled."))
                 _uiState.update { it.copy(discoveredTiles = revealed) }
                 spawnFloatingText("BEACON ONLINE", obj.x.toFloat(), obj.y.toFloat(), 0xFF4FD1C5)
+            }
+            InteractiveObjectType.MERCHANT -> {
+                logs.add(CombatLogEntry("₿ Black-market vendor opened trade negotiations."))
+                _uiState.update {
+                    it.copy(
+                        combatLogs = logs,
+                        activeModal = ActiveModal.TRADE
+                    )
+                }
+                return
+            }
+            InteractiveObjectType.ZONE_EXIT -> {
+                val cur = _uiState.value.currentZoneId
+                val idx = ZONE_ORDER.indexOf(cur).coerceAtLeast(0)
+                val next = ZONE_ORDER[(idx + 1) % ZONE_ORDER.size]
+                logs.add(CombatLogEntry("⏏ Stepped through the transit gate toward the next sector..."))
+                _uiState.update { it.copy(combatLogs = logs) }
+                travelToZone(next)
+                return
             }
         }
 
@@ -400,9 +621,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             inventoryRepository.characterProfile.collect { profile ->
                 if (profile != null) {
+                    val skillMap = mapOf(
+                        com.example.data.SkillType.LOCKPICKING to profile.skillLockpicking,
+                        com.example.data.SkillType.SCIENCE to profile.skillScience,
+                        com.example.data.SkillType.MELEE to profile.skillMelee,
+                        com.example.data.SkillType.GUNS to profile.skillGuns,
+                        com.example.data.SkillType.MEDICINE to profile.skillMedicine
+                    )
                     _uiState.update {
                         it.copy(
                             characterProfile = profile,
+                            skills = skillMap,
+                            unspentSkillPoints = profile.unspentSkillPoints,
+                            unspentPerkPoints = profile.unspentPerkPoints,
                             player = it.player.copy(
                                 credits = profile.credits,
                                 exp = profile.exp,
@@ -411,6 +642,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            inventoryRepository.acquiredPerks.collect { perks ->
+                _uiState.update { it.copy(acquiredPerks = perks.map { p -> p.toPerk() }) }
+            }
+        }
+
+        viewModelScope.launch {
+            inventoryRepository.shopItems.collect { items ->
+                _uiState.update { it.copy(shopItems = items) }
             }
         }
 
@@ -427,9 +670,44 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadWorldFromMarkdown() {
+    private val ZONES = mapOf(
+        "sector7" to Zone("sector7", "Sector 7 — Chemical Wasteland", "chemopank_world.md", 1.0f),
+        "sewers" to Zone("sewers", "Sector 7 — Toxic Sewers", "chemopank_world.md", 1.4f),
+        "surface" to Zone("surface", "Surface — Ruined City", "chemopank_world.md", 1.8f)
+    )
+    private val ZONE_ORDER = listOf("sector7", "sewers", "surface")
+
+    /** Transition to another zone, scaling remaining hostiles & dimming lights to match difficulty. */
+    fun travelToZone(zoneId: String) {
+        val zone = ZONES[zoneId] ?: return
+        val mult = zone.encounterMultiplier
+        val scaled = _uiState.value.activeEnemies.map { e ->
+            if (e.isAlive) e.copy(
+                hp = (e.hp * mult).toInt().coerceAtLeast(1),
+                maxHp = (e.maxHp * mult).toInt().coerceAtLeast(1),
+                attack = (e.attack * mult).toInt().coerceAtLeast(1)
+            ) else e
+        }
+        val tintedLights = _uiState.value.lightSources.map { l ->
+            l.copy(intensity = (l.intensity / kotlin.math.sqrt(mult.toDouble())).toFloat())
+        }
+        _uiState.update {
+            it.copy(
+                currentZoneId = zoneId,
+                activeEnemies = scaled,
+                lightSources = tintedLights,
+                combatLogs = it.combatLogs + CombatLogEntry("⏏ Zone transit engaged: ${zone.name}. Threat level adjusted.")
+            )
+        }
+    }
+
+    fun loadWorldFromMarkdown(
+        zoneId: String = "sector7",
+        assetFileName: String = "chemopank_world.md",
+        encounterMultiplier: Float = 1.0f
+    ) {
         viewModelScope.launch {
-            val data = parser.parseWorld(MarkdownParser.parseFromAssets(getApplication()).rawMarkdownText)
+            val data = parser.parseWorld(MarkdownParser.parseFromAssets(getApplication(), assetFileName).rawMarkdownText)
             parsedData = data
 
             val startingNode = data.storyNodes["start"] ?: data.storyNodes.values.firstOrNull()
@@ -447,6 +725,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 startingWeaponId = data.config.startingWeapon,
                 startingCredits = data.config.startingCredits
             )
+            inventoryRepository.seedShopIfEmpty()
 
             // Synchronize and ingest Markdown narrative scripts into Room database
             storyNarrativeRepository.syncDefaultAssetsFromContext(getApplication())
@@ -513,7 +792,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
 
-            val initialEnemies = initializeNpcStateMachines(data.enemies, data.mapGrid)
+            val scaledEnemies = data.enemies.map { e ->
+                e.copy(
+                    hp = (e.hp * encounterMultiplier).toInt().coerceAtLeast(1),
+                    maxHp = (e.maxHp * encounterMultiplier).toInt().coerceAtLeast(1),
+                    attack = (e.attack * encounterMultiplier).toInt().coerceAtLeast(1)
+                )
+            }
+            val initialEnemies = initializeNpcStateMachines(scaledEnemies, data.mapGrid)
             val initialQueue = buildTurnCombatQueue(player, initialEnemies, round = 1, currentActiveId = "player")
 
             val (gridWithObjects, interactiveObjectsMap) = injectInteractiveObjects(data.mapGrid)
@@ -528,7 +814,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     player = player,
                     currentStoryNode = startingNode,
                     currentStoryDocument = data.document,
-                    currentStoryAssetFileName = "chemopank_world.md",
+                    currentStoryAssetFileName = assetFileName,
+                    currentZoneId = zoneId,
                     inventory = startingInventory,
                     activeEnemies = initialEnemies,
                     turnQueueState = initialQueue,
@@ -673,14 +960,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
             val dist = Math.hypot((enemy.x - p.x).toDouble(), (enemy.y - p.y).toDouble())
             if (dist < 1.5) {
-                // Engage in combat
-                _uiState.update {
-                    it.copy(
-                        activeModal = ActiveModal.COMBAT,
-                        activeCombatEnemy = enemy,
-                        combatLogs = it.combatLogs + CombatLogEntry("Engaged hostile: ${enemy.name}!")
-                    )
-                }
+                engageHostiles(enemy)
             }
             return
         }
@@ -1278,7 +1558,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val chipDef = stats.activeChip?.defense ?: 0
                 val corrosionDefLoss = player.statusEffects.filter { it.type == StatusEffectType.CORROSION }.sumOf { it.magnitude }
                 val totalDef = ((armorDef + chipDef) / 2 - corrosionDefLoss).coerceAtLeast(0)
-                val netDmg = (turnResult.damageDealtToPlayer - totalDef).coerceAtLeast(1)
+            val netDmg = ((turnResult.damageDealtToPlayer - totalDef) * if (hasPerk("tough_skin")) 0.9f else 1f).toInt().coerceAtLeast(1)
 
                 val newHp = (player.hp - netDmg).coerceAtLeast(0)
                 val newTox = (player.toxicity + turnResult.toxicityDealtToPlayer).coerceAtMost(100)
@@ -1303,22 +1583,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun checkEnemyProximity(px: Float, py: Float) {
+        if (_uiState.value.activeModal == ActiveModal.COMBAT) return
         val enemies = _uiState.value.activeEnemies
-        val nearEnemy = enemies.firstOrNull { enemy ->
-            enemy.isAlive && Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) < 0.8
-        }
+        val nearEnemy = enemies.filter { enemy ->
+            enemy.isAlive && Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) < 4.0
+        }.minByOrNull { enemy -> Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) }
 
         if (nearEnemy != null) {
-            val currentRound = _uiState.value.turnQueueState.roundNumber
-            val queue = buildTurnCombatQueue(_uiState.value.player, enemies, round = currentRound, currentActiveId = "player")
-            _uiState.update {
-                it.copy(
-                    activeModal = ActiveModal.COMBAT,
-                    activeCombatEnemy = nearEnemy,
-                    turnQueueState = queue.copy(isCombatActive = true),
-                    combatLogs = it.combatLogs + CombatLogEntry("Engaged hostile: ${nearEnemy.name}!")
-                )
-            }
+            engageHostiles(nearEnemy)
         }
     }
 
@@ -1326,11 +1598,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val enemy = _uiState.value.activeCombatEnemy ?: return
         val player = _uiState.value.player
         val stats = _uiState.value.gearStats
+        val skills = _uiState.value.skills
+
+        val gunsBonus = skills[SkillType.GUNS] ?: 0
+        val meleeBonus = skills[SkillType.MELEE] ?: 0
+        val weaponMasteryMult = if (hasPerk("weapon_mastery")) 1.15f else 1f
+        val bladeDancerMeleeMult = if (hasPerk("blade_dancer")) 1.15f else 1f
+        val perkCrit = if (hasPerk("blade_dancer")) 0.05f else 0f
 
         val adrenalineBonus = player.statusEffects.filter { it.type == StatusEffectType.ADRENALINE }.sumOf { it.magnitude }
-        val weaponDmg = if (stats.totalWeaponDamage > 0) stats.totalWeaponDamage else (player.equippedWeapon?.damage ?: 10)
+        val weaponDmg = (((if (stats.totalWeaponDamage > 0) stats.totalWeaponDamage else (player.equippedWeapon?.damage ?: 10)) + gunsBonus * 2) * weaponMasteryMult).toInt()
         val chipDmg = stats.activeChip?.damage ?: 0
-        val critBonus = stats.activeChip?.criticalBonus ?: 0f
+        val critBonus = (stats.activeChip?.criticalBonus ?: 0f) + perkCrit
 
         val equippedWeapon = stats.activeWeapon
         val weaponBroken = equippedWeapon?.isBroken == true
@@ -1355,7 +1634,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val enemyCorrosion = enemy.statusEffects.filter { it.type == StatusEffectType.CORROSION }.sumOf { it.magnitude }
         val effectiveEnemyArmor = (enemy.armor - enemyCorrosion).coerceAtLeast(0)
 
-        val baseDmg = (player.attackPower + adrenalineBonus + weaponDmg + chipDmg - effectiveEnemyArmor).coerceAtLeast(3)
+        val baseDmg = (player.attackPower + adrenalineBonus + (meleeBonus * 2 * bladeDancerMeleeMult).toInt() + weaponDmg + chipDmg - effectiveEnemyArmor).coerceAtLeast(3)
         // Broken weapons deal reduced damage (in addition to the jam chance above)
         val brokenMult = if (weaponBroken) 0.5f else 1f
         val totalDmg = if (isMiss) 0 else ((if (isCrit) (baseDmg * 1.5f) else baseDmg.toFloat()) * brokenMult).toInt()
@@ -1410,7 +1689,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 state = enemy.state
             )
             val updatedEnemies = _uiState.value.activeEnemies.map { if (it.id == enemy.id) updatedEnemy else it }
-            val refreshedQueue = buildTurnCombatQueue(player, updatedEnemies)
+            val remainingEnemies = _uiState.value.activeEnemies.filter { it.id != enemy.id && it.isAlive }
+            val refreshedQueue = buildTurnCombatQueue(player, remainingEnemies)
 
             logs.add(CombatLogEntry("Defeated ${enemy.name}! +${enemy.expReward} EXP!"))
             spawnFloatingText("+${enemy.expReward} EXP", enemy.x, enemy.y, 0xFF4FD1C5)
@@ -1437,15 +1717,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
             val newKillCount = _uiState.value.killCount + 1
             val newItemsCollected = _uiState.value.itemsCollected + if (lootObtained) 1 else 0
-            val updatedPlayer = player.copy(exp = player.exp + enemy.expReward, credits = player.credits + 20)
+            val levelUpMsg = grantExp(enemy.expReward)
+            if (levelUpMsg.isNotBlank()) logs.add(CombatLogEntry(levelUpMsg, isHeal = true))
+            val postPlayer = _uiState.value.player
+            val creditsReward = if (hasPerk("scavenger")) 25 else 20
+            val updatedPlayer = postPlayer.copy(credits = postPlayer.credits + creditsReward)
             val refreshedQuests = updateQuestsProgress(
                 _uiState.value.copy(killCount = newKillCount, itemsCollected = newItemsCollected, player = updatedPlayer)
             )
 
+            val combatEnded = remainingEnemies.isEmpty()
+            val nextTarget = remainingEnemies.firstOrNull()
+            val nextModal = when {
+                it.pendingPerkChoices.isNotEmpty() -> ActiveModal.PERK_SELECT
+                combatEnded -> ActiveModal.NONE
+                else -> ActiveModal.COMBAT
+            }
+
             _uiState.update {
                 it.copy(
-                    activeCombatEnemy = null,
-                    activeModal = ActiveModal.NONE,
+                    activeCombatEnemy = nextTarget,
+                    activeModal = nextModal,
                     inventory = inv,
                     combatLogs = logs,
                     activeEnemies = updatedEnemies,
@@ -1478,7 +1770,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val chipDef = stats.activeChip?.defense ?: 0
             val totalDef = (player.defense + armorDef + chipDef - playerCorrosion).coerceAtLeast(0)
 
-            val enemyDmg = (enemy.attack - totalDef).coerceAtLeast(1)
+            val enemyDmg = ((enemy.attack - totalDef) * if (hasPerk("tough_skin")) 0.9f else 1f).toInt().coerceAtLeast(1)
             val newPlayerHp = (player.hp - enemyDmg).coerceAtLeast(0)
             val newTox = (player.toxicity + enemy.toxicityDamage).coerceAtMost(100)
 
@@ -1570,10 +1862,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun useCombatStimpack() {
         val player = _uiState.value.player
-        val newHp = (player.hp + 35).coerceAtMost(player.maxHp)
+        val medicineBonus = _uiState.value.skills[SkillType.MEDICINE] ?: 0
+        val stimAmount = 35 + medicineBonus * 3 + if (hasPerk("field_medic")) 20 else 0
+        val newHp = (player.hp + stimAmount).coerceAtMost(player.maxHp)
         val newTox = (player.toxicity - 15).coerceAtLeast(0)
-        val logs = _uiState.value.combatLogs + CombatLogEntry("Quick Stimpack applied: +35 HP, -15% Toxicity purged.", isHeal = true)
-        spawnFloatingText("+35 HP", player.x, player.y, 0xFF4FD1C5)
+        val logs = _uiState.value.combatLogs + CombatLogEntry("Quick Stimpack applied: +$stimAmount HP, -15% Toxicity purged.", isHeal = true)
+        spawnFloatingText("+$stimAmount HP", player.x, player.y, 0xFF4FD1C5)
         spawnFloatingText("-15% TOX", player.x, player.y, 0xFF38BDF8)
         _uiState.update {
             it.copy(
@@ -1592,6 +1886,39 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 activeModal = ActiveModal.NONE,
                 activeCombatEnemy = null,
                 combatLogs = logs
+            )
+        }
+    }
+
+    /** Switch the focused combat target to another living enemy in the active encounter. */
+    fun selectCombatTarget(enemyId: String) {
+        val enemy = _uiState.value.activeEnemies.firstOrNull { it.id == enemyId && it.isAlive } ?: return
+        _uiState.update { it.copy(activeCombatEnemy = enemy) }
+    }
+
+    /** Engage every nearby hostile at once, focusing `target` (falls back to the nearest). */
+    private fun engageHostiles(target: Enemy) {
+        val player = _uiState.value.player
+        val all = _uiState.value.activeEnemies.filter { it.isAlive }
+        val near = all.filter { Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) < 4.0 }
+        val engaged = if (near.isNotEmpty()) near else all
+        val finalTarget = if (engaged.any { it.id == target.id }) {
+            target
+        } else {
+            engaged.minByOrNull { Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) } ?: target
+        }
+        val queue = buildTurnCombatQueue(
+            player,
+            engaged,
+            round = _uiState.value.turnQueueState.roundNumber,
+            currentActiveId = "player"
+        )
+        _uiState.update {
+            it.copy(
+                activeModal = ActiveModal.COMBAT,
+                activeCombatEnemy = finalTarget,
+                turnQueueState = queue.copy(isCombatActive = true),
+                combatLogs = it.combatLogs + CombatLogEntry("Engaged ${engaged.size} hostile(s): ${finalTarget.name}!")
             )
         }
     }

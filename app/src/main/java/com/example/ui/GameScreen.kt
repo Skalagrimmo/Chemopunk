@@ -53,6 +53,10 @@ import com.example.ui.components.HudOverlay
 import com.example.ui.components.InventoryModal
 import com.example.ui.components.MarkdownEditorModal
 import com.example.ui.components.QuestLogModal
+import com.example.ui.components.SkillsModal
+import com.example.ui.components.PerkSelectModal
+import com.example.ui.components.TradeModal
+import com.example.ui.components.SynthesisModal
 import com.example.ui.components.RadialQuickActionMenu
 import com.example.ui.components.StoryDialogueScreen
 import com.example.ui.components.StoryModal
@@ -112,6 +116,9 @@ fun GameScreen(viewModel: GameViewModel) {
                     isEncumbered = uiState.isEncumbered,
                     onOpenInventory = { viewModel.openModal(ActiveModal.INVENTORY) },
                     onOpenQuests = { viewModel.openModal(ActiveModal.QUEST_LOG) },
+                    onOpenSkills = { viewModel.openSkillsModal() },
+                    onOpenSynthesis = { viewModel.openSynthesisModal() },
+                    zoneName = uiState.currentZoneId.replaceFirstChar { if (it.isLowerCase()) it.uppercase() else it },
                     onOpenStoryNotes = { viewModel.setViewMode(ViewMode.STORY_DIALOGUE) },
                     onOpenMarkdownEditor = { viewModel.setViewMode(ViewMode.MARKDOWN_EDITOR) },
                     onTogglePalette = { viewModel.togglePalette() },
@@ -310,6 +317,8 @@ fun GameScreen(viewModel: GameViewModel) {
                             playerToxicity = uiState.player.toxicity,
                             playerStatusEffects = uiState.player.statusEffects,
                             queueState = uiState.turnQueueState,
+                            availableTargets = uiState.activeEnemies.filter { it.isAlive },
+                            onSelectTarget = { targetId -> viewModel.selectCombatTarget(targetId) },
                             onAttack = { viewModel.attackCombatEnemy() },
                             onDefend = { viewModel.defendCombatTurn() },
                             onUseStimpack = { viewModel.useCombatStimpack() },
@@ -322,6 +331,45 @@ fun GameScreen(viewModel: GameViewModel) {
                 ActiveModal.QUEST_LOG -> {
                     QuestLogModal(
                         quests = uiState.quests,
+                        onClose = { viewModel.closeModal() }
+                    )
+                }
+                ActiveModal.SKILLS -> {
+                    SkillsModal(
+                        playerLevel = uiState.player.level,
+                        currentExp = uiState.player.exp,
+                        expForLevel = uiState.player.level * 100,
+                        unspentSkillPoints = uiState.unspentSkillPoints,
+                        skills = uiState.skills,
+                        acquiredPerks = uiState.acquiredPerks,
+                        onAllocateSkill = { skill -> viewModel.allocateSkillPoint(skill) },
+                        onClose = { viewModel.closeModal() }
+                    )
+                }
+                ActiveModal.PERK_SELECT -> {
+                    PerkSelectModal(
+                        choices = uiState.pendingPerkChoices,
+                        onSelect = { perk -> viewModel.confirmPerkChoice(perk) },
+                        onSkip = { viewModel.cancelPerkChoices() }
+                    )
+                }
+                ActiveModal.TRADE -> {
+                    TradeModal(
+                        shopItems = uiState.shopItems,
+                        ownedItems = uiState.roomInventory,
+                        playerCredits = uiState.characterProfile?.credits ?: uiState.player.credits,
+                        onBuy = { itemId -> viewModel.buyShopItem(itemId) },
+                        onSell = { itemId -> viewModel.sellInventoryItem(itemId) },
+                        onClose = { viewModel.closeModal() }
+                    )
+                }
+                ActiveModal.SYNTHESIS -> {
+                    val chemCount = uiState.roomInventory.filter { it.itemId == "mat_chem_reagent" }.sumOf { it.quantity }
+                    val bioCount = uiState.roomInventory.filter { it.itemId == "mat_biogel_vial" }.sumOf { it.quantity }
+                    SynthesisModal(
+                        chemReagentCount = chemCount,
+                        bioGelCount = bioCount,
+                        onSynthesize = { chem, bio -> viewModel.synthesizeChem(chem, bio) },
                         onClose = { viewModel.closeModal() }
                     )
                 }

@@ -122,5 +122,74 @@ data class CharacterProfileEntity(
     val equippedArmorId: String? = null,
     val equippedChipId: String? = null,
     val totalItemsDiscovered: Int = 0,
+    val unspentSkillPoints: Int = 0,
+    val unspentPerkPoints: Int = 0,
+    val skillLockpicking: Int = 0,
+    val skillScience: Int = 0,
+    val skillMelee: Int = 0,
+    val skillGuns: Int = 0,
+    val skillMedicine: Int = 0,
     val lastUpdated: Long = System.currentTimeMillis()
-)
+) {
+    fun skillLevel(skill: com.example.data.SkillType): Int = when (skill) {
+        com.example.data.SkillType.LOCKPICKING -> skillLockpicking
+        com.example.data.SkillType.SCIENCE -> skillScience
+        com.example.data.SkillType.MELEE -> skillMelee
+        com.example.data.SkillType.GUNS -> skillGuns
+        com.example.data.SkillType.MEDICINE -> skillMedicine
+    }
+}
+
+@Entity(tableName = "perks")
+data class PerkEntity(
+    @PrimaryKey val perkId: String,
+    val name: String,
+    val description: String,
+    val tier: Int = 1,
+    val acquiredAt: Long = System.currentTimeMillis()
+) {
+    fun toPerk(): com.example.data.Perk = com.example.data.Perk(
+        perkId = perkId,
+        name = name,
+        description = description,
+        tier = tier
+    )
+}
+
+@Entity(tableName = "shop_items")
+data class NpcShopEntity(
+    @PrimaryKey val itemId: String,
+    val name: String,
+    val type: String, // WEAPON, ARMOR, CONSUMABLE, NEURAL_CHIP
+    val description: String = "",
+    val damage: Int = 0,
+    val defense: Int = 0,
+    val healHp: Int = 0,
+    val reduceToxicity: Int = 0,
+    val rarity: String = ItemRarity.COMMON.name,
+    val weightKg: Float = 1.0f,
+    val buyPrice: Int,   // price the player pays to acquire
+    val sellPrice: Int,  // price the player receives when selling
+    val stock: Int = 5,
+    val merchantId: String = "roving_trader"
+) {
+    fun toDomainItem(): com.example.data.Item {
+        val itemType = try {
+            com.example.data.ItemType.valueOf(type)
+        } catch (_: Exception) {
+            com.example.data.ItemType.CONSUMABLE
+        }
+        return com.example.data.Item(
+            id = itemId,
+            name = name,
+            type = itemType,
+            value = sellPrice,
+            healHp = healHp,
+            reduceToxicity = reduceToxicity,
+            damage = damage,
+            defense = defense,
+            description = description
+        )
+    }
+}
+

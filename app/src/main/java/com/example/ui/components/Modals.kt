@@ -47,7 +47,11 @@ import com.example.data.Enemy
 import com.example.data.Item
 import com.example.data.Quest
 import com.example.data.QuestStatus
+import com.example.data.SkillType
+import com.example.data.Perk
 import com.example.data.StoryNode
+import com.example.data.room.InventoryItemEntity
+import com.example.data.room.NpcShopEntity
 import com.example.ui.theme.AcidYellow
 import com.example.ui.theme.AmberTerminal
 import com.example.ui.theme.ImmersiveAccentOrange
@@ -1521,6 +1525,8 @@ fun CombatModal(
     playerToxicity: Int,
     playerStatusEffects: List<com.example.data.StatusEffect> = emptyList(),
     queueState: com.example.data.TurnCombatQueueState = com.example.data.TurnCombatQueueState(),
+    availableTargets: List<Enemy> = emptyList(),
+    onSelectTarget: (String) -> Unit = {},
     onAttack: () -> Unit,
     onDefend: () -> Unit = {},
     onUseStimpack: () -> Unit = {},
@@ -1580,6 +1586,42 @@ fun CombatModal(
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
+
+                // Multi-enemy target selector
+                if (availableTargets.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "TARGETS:",
+                            color = ImmersiveTextMuted,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            modifier = Modifier.align(Alignment.CenterVertically)
+                        )
+                        availableTargets.forEach { tgt ->
+                            val isCurrent = tgt.id == enemy.id
+                            Button(
+                                onClick = { onSelectTarget(tgt.id) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isCurrent) ImmersiveTeal else ImmersiveSurfaceVariant
+                                ),
+                                modifier = Modifier.testTag("target_${tgt.id}")
+                            ) {
+                                Text(
+                                    text = if (isCurrent) "▸ ${tgt.name}" else tgt.name,
+                                    color = if (isCurrent) ImmersiveBackground else ImmersiveText,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
 
                 // Active Combatant Turn Phase Banner
                 val bannerBg = if (isPlayerTurn) ImmersiveTeal.copy(alpha = 0.15f) else ToxicRed.copy(alpha = 0.15f)
@@ -2203,6 +2245,301 @@ fun QuestLogModal(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImmersiveModal(title: String, onClose: () -> Unit, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ImmersiveBackground.copy(alpha = 0.96f))
+            .padding(12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.98f)
+                .fillMaxHeight(0.9f)
+                .border(1.5.dp, ImmersiveTeal, RoundedCornerShape(20.dp)),
+            colors = CardDefaults.cardColors(containerColor = ImmersiveSurface),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("▣ $title", color = ImmersiveTeal, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = ImmersiveTeal)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+fun SkillsModal(
+    playerLevel: Int,
+    currentExp: Int,
+    expForLevel: Int,
+    unspentSkillPoints: Int,
+    skills: Map<SkillType, Int>,
+    acquiredPerks: List<Perk>,
+    onAllocateSkill: (SkillType) -> Unit,
+    onClose: () -> Unit
+) {
+    ImmersiveModal(title = "CHARACTER SKILLS", onClose = onClose) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("LEVEL $playerLevel", color = ImmersiveAccentOrange, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(
+                    if (unspentSkillPoints > 0) "SKILL PTS: $unspentSkillPoints" else "SKILL PTS: 0",
+                    color = if (unspentSkillPoints > 0) PhosphorGreen else ImmersiveTextMuted,
+                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 14.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "EXP: $currentExp / $expForLevel",
+                color = ImmersiveText,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SkillType.values().forEach { skill ->
+                val rank = skills[skill] ?: 0
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .border(0.8.dp, ImmersiveSurfaceVariant, RoundedCornerShape(6.dp))
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(skill.label, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Text(skill.description, color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                    }
+                    Text("Lv $rank", color = ImmersiveAccentOrange, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onAllocateSkill(skill) },
+                        enabled = unspentSkillPoints > 0,
+                        colors = ButtonDefaults.buttonColors(containerColor = if (unspentSkillPoints > 0) ImmersiveTeal else ImmersiveSurfaceVariant),
+                        modifier = Modifier.testTag("allocate_${skill.name.lowercase()}")
+                    ) {
+                        Text("+", color = ImmersiveBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            if (acquiredPerks.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("ACQUIRED PERKS", color = ImmersiveAccentOrange, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                acquiredPerks.forEach { perk ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        Text("◆ ${perk.name}", color = PhosphorGreen, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(perk.description, color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PerkSelectModal(
+    choices: List<Perk>,
+    onSelect: (Perk) -> Unit,
+    onSkip: () -> Unit
+) {
+    ImmersiveModal(title = "SELECT A PERK", onClose = onSkip) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(
+                "Level-up bonus — choose one perk:",
+                color = ImmersiveText,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            choices.forEach { perk ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .border(1.dp, ImmersiveTeal, RoundedCornerShape(8.dp))
+                        .testTag("perk_choice_${perk.perkId}"),
+                    colors = CardDefaults.cardColors(containerColor = TerminalCardBackground)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
+                        Text(perk.name, color = ImmersiveAccentOrange, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(perk.description, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Button(
+                            onClick = { onSelect(perk) },
+                            colors = ButtonDefaults.buttonColors(containerColor = ImmersiveTeal),
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("ACQUIRE", color = ImmersiveBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = onSkip,
+                colors = ButtonDefaults.buttonColors(containerColor = ImmersiveSurfaceVariant),
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("SKIP", color = ImmersiveText, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun SynthesisModal(
+    chemReagentCount: Int,
+    bioGelCount: Int,
+    onSynthesize: (Int, Int) -> Unit,
+    onClose: () -> Unit
+) {
+    var chem by remember { mutableStateOf(1) }
+    var bio by remember { mutableStateOf(0) }
+
+    fun clampChem(v: Int) { chem = v.coerceIn(0, chemReagentCount) }
+    fun clampBio(v: Int) { bio = v.coerceIn(0, bioGelCount) }
+
+    ImmersiveModal(title = "CHEM SYNTHESIS", onClose = onClose) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(
+                "Mix reagents to brew field chems. More Biogel → Toxic Purge, more Reagent → Battle Stim. Science skill boosts potency.",
+                color = ImmersiveText,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            @Composable
+            fun Stepper(label: String, value: Int, max: Int, onMinus: () -> Unit, onPlus: () -> Unit) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).border(0.8.dp, ImmersiveSurfaceVariant, RoundedCornerShape(6.dp)).padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(label, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                    Text("x$value / $max", color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Button(onClick = onMinus, colors = ButtonDefaults.buttonColors(containerColor = ImmersiveSurfaceVariant), modifier = Modifier.size(32.dp)) { Text("-", color = ImmersiveText, fontFamily = FontFamily.Monospace) }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Button(onClick = onPlus, colors = ButtonDefaults.buttonColors(containerColor = ImmersiveTeal), modifier = Modifier.size(32.dp)) { Text("+", color = ImmersiveBackground, fontFamily = FontFamily.Monospace) }
+                }
+            }
+
+            Stepper("Chem Reagent", chem, chemReagentCount, { clampChem(chem - 1) }, { clampChem(chem + 1) })
+            Stepper("Bio-Gel Vial", bio, bioGelCount, { clampBio(bio - 1) }, { clampBio(bio + 1) })
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = { onSynthesize(chem, bio) },
+                enabled = chem > 0,
+                colors = ButtonDefaults.buttonColors(containerColor = ImmersiveAccentOrange),
+                modifier = Modifier.fillMaxWidth().testTag("btn_brew_chem")
+            ) {
+                Text("⚗ BREW CHEM", color = ImmersiveBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun TradeModal(
+    shopItems: List<NpcShopEntity>,
+    ownedItems: List<InventoryItemEntity>,
+    playerCredits: Int,
+    onBuy: (String) -> Unit,
+    onSell: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    ImmersiveModal(title = "BLACK MARKET", onClose = onClose) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(
+                "CREDITS: $playerCredits",
+                color = PhosphorGreen,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text("— VENDOR STOCK —", color = ImmersiveAccentOrange, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 170.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(shopItems, key = { it.itemId }) { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(0.8.dp, ImmersiveSurfaceVariant, RoundedCornerShape(6.dp))
+                            .padding(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.name, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("${item.type} • BUY ${item.buyPrice}cr (stock ${item.stock})", color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                        }
+                        Button(
+                            onClick = { onBuy(item.itemId) },
+                            enabled = item.stock > 0 && playerCredits >= item.buyPrice,
+                            colors = ButtonDefaults.buttonColors(containerColor = if (item.stock > 0) ImmersiveTeal else ImmersiveSurfaceVariant),
+                            modifier = Modifier.testTag("buy_${item.itemId}")
+                        ) {
+                            Text("BUY", color = ImmersiveBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("— YOUR SALVAGE —", color = ImmersiveAccentOrange, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 170.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(ownedItems, key = { it.itemId }) { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(0.8.dp, ImmersiveSurfaceVariant, RoundedCornerShape(6.dp))
+                            .padding(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.name, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                            Text("SELL ${item.creditValue}cr", color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                        }
+                        Button(
+                            onClick = { onSell(item.itemId) },
+                            enabled = !item.isEquipped,
+                            colors = ButtonDefaults.buttonColors(containerColor = ImmersiveAccentOrange),
+                            modifier = Modifier.testTag("sell_${item.itemId}")
+                        ) {
+                            Text("SELL", color = ImmersiveBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 9.sp)
                         }
                     }
                 }

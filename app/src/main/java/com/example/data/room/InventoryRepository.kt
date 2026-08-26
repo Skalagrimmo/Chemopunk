@@ -15,13 +15,64 @@ data class GearCombatStats(
 
 class InventoryRepository(
     private val inventoryDao: InventoryDao,
-    private val profileDao: CharacterProfileDao
+    private val profileDao: CharacterProfileDao,
+    private val perkDao: PerkDao,
+    private val shopDao: ShopDao
 ) {
     val allInventoryItems: Flow<List<InventoryItemEntity>> = inventoryDao.getAllInventoryItems()
 
     val equippedItems: Flow<List<InventoryItemEntity>> = inventoryDao.getEquippedItems()
 
     val characterProfile: Flow<CharacterProfileEntity?> = profileDao.getProfile(1)
+
+    val acquiredPerks: Flow<List<PerkEntity>> = perkDao.getAcquiredPerks()
+
+    val shopItems: Flow<List<NpcShopEntity>> = shopDao.getShopItems()
+
+    suspend fun allocateSkillPoint(skill: com.example.data.SkillType) {
+        val p = profileDao.getProfileDirect(1) ?: return
+        if (p.unspentSkillPoints <= 0) return
+        val updated = when (skill) {
+            com.example.data.SkillType.LOCKPICKING -> p.copy(skillLockpicking = p.skillLockpicking + 1, unspentSkillPoints = p.unspentSkillPoints - 1)
+            com.example.data.SkillType.SCIENCE -> p.copy(skillScience = p.skillScience + 1, unspentSkillPoints = p.unspentSkillPoints - 1)
+            com.example.data.SkillType.MELEE -> p.copy(skillMelee = p.skillMelee + 1, unspentSkillPoints = p.unspentSkillPoints - 1)
+            com.example.data.SkillType.GUNS -> p.copy(skillGuns = p.skillGuns + 1, unspentSkillPoints = p.unspentSkillPoints - 1)
+            com.example.data.SkillType.MEDICINE -> p.copy(skillMedicine = p.skillMedicine + 1, unspentSkillPoints = p.unspentSkillPoints - 1)
+        }
+        profileDao.insertOrUpdateProfile(updated)
+    }
+
+    suspend fun acquirePerk(perk: com.example.data.Perk) {
+        perkDao.acquirePerk(
+            PerkEntity(
+                perkId = perk.perkId,
+                name = perk.name,
+                description = perk.description,
+                tier = perk.tier
+            )
+        )
+        val p = profileDao.getProfileDirect(1)
+        if (p != null) {
+            profileDao.insertOrUpdateProfile(p.copy(unspentPerkPoints = (p.unspentPerkPoints - 1).coerceAtLeast(0)))
+        }
+    }
+
+    suspend fun grantLevelRewards(skillPoints: Int, perkPoints: Int) {
+        val p = profileDao.getProfileDirect(1) ?: return
+        profileDao.insertOrUpdateProfile(
+            p.copy(
+                unspentSkillPoints = p.unspentSkillPoints + skillPoints,
+                unspentPerkPoints = p.unspentPerkPoints + perkPoints
+            )
+        )
+    }
+
+    suspend fun addExperience(amount: Int): CharacterProfileEntity? {
+        val p = profileDao.getProfileDirect(1) ?: return null
+        val updated = p.copy(exp = p.exp + amount, lastUpdated = System.currentTimeMillis())
+        profileDao.insertOrUpdateProfile(updated)
+        return updated
+    }
 
     val gearCombatStats: Flow<GearCombatStats> = inventoryDao.getAllInventoryItems().map { items ->
         val equipped = items.filter { it.isEquipped }
@@ -432,4 +483,48 @@ data class ScrapResult(
     suspend fun deleteItem(itemId: String) {
         inventoryDao.deleteItemById(itemId)
     }
+
+    // region Trade / Barter
+
+    suspend fun seedShopIfEmpty() {
+        if (shopDao.findShopItem("shop_stimpack") != null) return
+        val stock = listOf(
+            NpcShopEntity("shop_stimpack", "Combat Stimpack", "CONSUMABLE", "Field-grade healing stim.", healHp = 35, reduceToxicity = 15, rarity = ItemRarity.UNCOMMON.name, weightKg = 0.3f, buyPrice = 40, sellPrice = 18, stock = 8),
+            NpcShopEntity("shop_antitoxin", "Anti-Toxin Vial", "CONSUMABLE", "Neutralizes toxic buildup.", healHp = 10, reduceToxicity = 45, rarity = ItemRarity.COMMON.name, weightKg = 0.3f, buyPrice = 25, sellPrice = 10, stock = 8),
+            NpcShopEntity("shop_plasma_scalpel", "Plasma Scalpel", "WEAPON", "Ranged energy blade.", damage = 22, rarity = ItemRarity.UNCOMMON.name, weightKg = 2.0f, buyPrice = 180, sellPrice = 80, stock = 3),
+            NpcShopEntity("shop_hazard_kevlar", "Hazard Kevlar", "ARMOR", "Ballistic hazmat plating.", defense = 14, rarity = ItemRarity.RARE.name, weightKg = 5.0f, buyPrice = 220, sellPrice = 100, stock = 2),
+            NpcShopEntity("shop_reflex_chip", "Reflex Chip", "NEURAL_CHIP", "Boosts crit reflex.", damage = 6, defense = 4, criticalBonus = 0.15f, rarity = ItemRarity.RARE.name, weightKg = 0.2f, buyPrice = 260, sellPrice = 120, stock = 2)
+        )
+        shopDao.insertAllShopItems(stock)
+    }
+
+    /** Player purchases a shop item. Returns the acquired domain item id, or null on failure. */
+    suspend fun buyShopItem(itemId: String): String? {
+        val shopItem = shopDao.findShopItem(itemId) ?: return null
+        if (shopItem.stock <= 0) return null
+        val profile = profileDao.getProfileDirect(1) ?: return null
+        if (profile.credits < shopItem.buyPrice) return null
+        profileDao.updateCredits(1, profile.credits - shopItem.buyPrice)
+        shopDao.updateStock(itemId, shopItem.stock - 1)
+        inventoryDao.insertItem(
+            InventoryItemEntity.fromDomainItem(
+                item = shopItem.toDomainItem(),
+                rarity = ItemRarity.valueOf(shopItem.rarity),
+                weightKg = shopItem.weightKg
+            )
+        )
+        return shopItem.itemId
+    }
+
+    /** Player sells an owned inventory item. Returns true on success. */
+    suspend fun sellInventoryItem(itemId: String): Boolean {
+        val item = inventoryDao.findItemDirect(itemId) ?: return false
+        if (item.isEquipped) return false
+        val sellValue = item.creditValue
+        val profile = profileDao.getProfileDirect(1) ?: return false
+        profileDao.updateCredits(1, profile.credits + sellValue)
+        inventoryDao.deleteItemById(itemId)
+        return true
+    }
+    // endregion
 }

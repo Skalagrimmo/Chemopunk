@@ -17,8 +17,22 @@ enum class InteractiveObjectType(val glyph: Char, val label: String) {
     TERMINAL('⌨', "Data Terminal"),
     LOCKER('▣', "Supply Locker"),
     SWITCH('⊞', "Power Switch"),
-    BEACON('☉', "Rescue Beacon")
+    BEACON('☉', "Rescue Beacon"),
+    MERCHANT('₿', "Black Market Vendor"),
+    ZONE_EXIT('⏏', "Zone Transit Gate")
 }
+
+/**
+ * A distinct explorable region. Each zone can load its own markdown map asset,
+ * apply an encounter difficulty multiplier, and tint the dynamic lighting.
+ */
+data class Zone(
+    val id: String,
+    val name: String,
+    val assetFileName: String,
+    val encounterMultiplier: Float = 1.0f,
+    val lightTint: Long = 0xFFFFFFFF
+)
 
 data class InteractiveObject(
     val id: String,
@@ -353,4 +367,45 @@ enum class TurnPhase {
     NPC_ACTION,
     ROUND_TRANSITION
 }
+
+/**
+ * Character skill categories. Points are allocated on level-up and passively
+ * enhance related mechanics (combat, healing, crafting, lockpicking).
+ */
+enum class SkillType(
+    val label: String,
+    val description: String
+) {
+    LOCKPICKING("Lockpicking", "Opens sealed lockers & terminals without forced entry."),
+    SCIENCE("Science", "Improves chem synthesis potency and success rates."),
+    MELEE("Melee", "Increases unarmed / blade attack power."),
+    GUNS("Guns", "Increases ranged weapon damage output."),
+    MEDICINE("Medicine", "Boosts stim and healing effectiveness.")
+}
+
+/**
+ * A passive perk earned on level-up. Stored in the Room `perks` table once acquired.
+ */
+data class Perk(
+    val perkId: String,
+    val name: String,
+    val description: String,
+    val tier: Int = 1
+) {
+    companion object {
+        val POOL: List<Perk> = listOf(
+            Perk("tough_skin", "Tough Skin", "+10% damage resistance vs all incoming attacks.", 1),
+            Perk("chem_affinity", "Chem Affinity", "Consumable chems & stimpacks last 50% longer.", 1),
+            Perk("quick_reflexes", "Quick Reflexes", "+1 Action Point on your combat turn.", 1),
+            Perk("scavenger", "Scavenger", "+25% credits & loot from defeated enemies.", 1),
+            Perk("weapon_mastery", "Weapon Mastery", "+15% ranged weapon damage.", 2),
+            Perk("blade_dancer", "Blade Dancer", "+15% melee damage and +5% crit chance.", 2),
+            Perk("field_medic", "Field Medic", "Stimpacks restore +20 HP.", 2),
+            Perk("iron_lungs", "Iron Lungs", "Toxicity threshold increased by 25.", 2),
+            Perk("silent_takedown", "Silent Takedown", "First strike each combat deals +50% damage.", 3),
+            Perk("nanosurge", "Nanosurge", "Regenerate 5 HP at the start of each round.", 3)
+        )
+    }
+}
+
 

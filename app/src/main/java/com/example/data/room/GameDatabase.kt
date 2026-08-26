@@ -9,18 +9,22 @@ import androidx.room.RoomDatabase
     entities = [
         InventoryItemEntity::class,
         CharacterProfileEntity::class,
+        PerkEntity::class,
+        NpcShopEntity::class,
         StoryScriptEntity::class,
         NarrativeNodeEntity::class,
         BranchingChoiceEntity::class,
         NarrativeProgressEntity::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = false
 )
 abstract class GameDatabase : RoomDatabase() {
 
     abstract fun inventoryDao(): InventoryDao
     abstract fun characterProfileDao(): CharacterProfileDao
+    abstract fun perkDao(): PerkDao
+    abstract fun shopDao(): ShopDao
     abstract fun storyNarrativeDao(): StoryNarrativeDao
 
     companion object {

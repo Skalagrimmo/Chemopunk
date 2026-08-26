@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -67,6 +68,9 @@ fun HudOverlay(
     onOpenStoryNotes: () -> Unit,
     onOpenMarkdownEditor: () -> Unit,
     onOpenQuests: () -> Unit = {},
+    onOpenSkills: () -> Unit = {},
+    onOpenSynthesis: () -> Unit = {},
+    zoneName: String = "Sector 7",
     onTogglePalette: () -> Unit = {},
     onToggleAudioMute: () -> Unit = {},
     isEncumbered: Boolean = false
@@ -143,6 +147,15 @@ fun HudOverlay(
                             )
                         }
                     }
+
+                    Text(
+                        text = "▣ $zoneName",
+                        color = ImmersiveAccentOrange,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -231,6 +244,40 @@ fun HudOverlay(
                     Icon(
                         imageVector = Icons.Default.Flag,
                         contentDescription = "Quests",
+                        tint = ImmersiveAccentOrange,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenSkills,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(ImmersiveSurfaceVariant)
+                        .border(0.8.dp, ImmersiveTeal.copy(alpha = 0.5f), CircleShape)
+                        .testTag("btn_skills")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = "Skills",
+                        tint = ImmersiveTeal,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenSynthesis,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(ImmersiveSurfaceVariant)
+                        .border(0.8.dp, ImmersiveAccentOrange.copy(alpha = 0.5f), CircleShape)
+                        .testTag("btn_synthesis")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Science,
+                        contentDescription = "Chem Synthesis",
                         tint = ImmersiveAccentOrange,
                         modifier = Modifier.size(17.dp)
                     )
