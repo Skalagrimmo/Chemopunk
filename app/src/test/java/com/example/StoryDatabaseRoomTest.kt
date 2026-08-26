@@ -3,12 +3,12 @@ package com.example
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import com.example.data.room.StoryBranchingChoice
-import com.example.data.room.StoryDao
-import com.example.data.room.StoryDatabase
-import com.example.data.room.StoryProgress
-import com.example.data.room.StorySceneNode
-import com.example.data.room.StoryScript
+import com.example.data.room.BranchingChoiceEntity
+import com.example.data.room.GameDatabase
+import com.example.data.room.NarrativeNodeEntity
+import com.example.data.room.NarrativeProgressEntity
+import com.example.data.room.StoryNarrativeDao
+import com.example.data.room.StoryScriptEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -21,23 +21,20 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/**
- * Unit tests verifying StoryDatabase, StoryDao, and StoryEntity Room implementations.
- */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class StoryDatabaseRoomTest {
 
-    private lateinit var db: StoryDatabase
-    private lateinit var storyDao: StoryDao
+    private lateinit var db: GameDatabase
+    private lateinit var storyDao: StoryNarrativeDao
 
     @Before
     fun createDb() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, StoryDatabase::class.java)
+        db = Room.inMemoryDatabaseBuilder(context, GameDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        storyDao = db.storyDao()
+        storyDao = db.storyNarrativeDao()
     }
 
     @After
@@ -47,7 +44,7 @@ class StoryDatabaseRoomTest {
 
     @Test
     fun testStoreAndRetrieveMarkdownStoryScript() = runBlocking {
-        val script = StoryScript(
+        val script = StoryScriptEntity(
             scriptId = "chemopank_main.md",
             title = "Chemopank: Sector 7 Infiltration",
             category = "CAMPAIGN",
@@ -70,13 +67,13 @@ class StoryDatabaseRoomTest {
 
     @Test
     fun testSceneTextAndBranchingChoiceTriggers() = runBlocking {
-        val script = StoryScript(
+        val script = StoryScriptEntity(
             scriptId = "bunker_archive.md",
             title = "Forbidden Bunker Log",
             category = "ARCHIVE"
         )
 
-        val sceneNode = StorySceneNode(
+        val sceneNode = NarrativeNodeEntity(
             compositeId = "bunker_archive.md_vault_airlock",
             nodeId = "vault_airlock",
             scriptId = "bunker_archive.md",
@@ -91,7 +88,7 @@ class StoryDatabaseRoomTest {
             orderIndex = 0
         )
 
-        val choice1 = StoryBranchingChoice(
+        val choice1 = BranchingChoiceEntity(
             compositeChoiceId = "bunker_archive.md_vault_airlock_0",
             scriptId = "bunker_archive.md",
             nodeId = "vault_airlock",
@@ -105,7 +102,7 @@ class StoryDatabaseRoomTest {
             setStoryFlag = "AIRLOCK_PURGED"
         )
 
-        val choice2 = StoryBranchingChoice(
+        val choice2 = BranchingChoiceEntity(
             compositeChoiceId = "bunker_archive.md_vault_airlock_1",
             scriptId = "bunker_archive.md",
             nodeId = "vault_airlock",
@@ -122,33 +119,29 @@ class StoryDatabaseRoomTest {
 
         storyDao.saveFullScript(script, listOf(sceneNode), listOf(choice1, choice2))
 
-        // 1. Search scene text
-        val searchResults = storyDao.searchSceneContent("Decontamination protocol").first()
+        val searchResults = storyDao.searchSceneText("Decontamination protocol").first()
         assertEquals(1, searchResults.size)
         assertEquals("AI SYSTEM NEXUS", searchResults.first().speaker)
         assertTrue(searchResults.first().isCheckpoint)
 
-        // 2. Action trigger queries
         val purgeChoices = storyDao.getChoicesByActionTrigger("bunker_archive.md", "PURGE_VALVES").first()
         assertEquals(1, purgeChoices.size)
         assertEquals("AIRLOCK_PURGED", purgeChoices.first().setStoryFlag)
 
-        // 3. Relational Node with Choices query
         val nodeWithChoices = storyDao.getNodeWithChoices("bunker_archive.md", "vault_airlock").first()
         assertNotNull(nodeWithChoices)
         assertEquals(2, nodeWithChoices?.getScriptFilteredChoices()?.size)
 
-        // 4. Eligible choices filtering
-        val eligibleChoicesLvl1 = storyDao.getEligibleChoices("bunker_archive.md", "vault_airlock", playerLevel = 1, playerToxicity = 20).first()
+        val eligibleChoicesLvl1 = storyDao.getEligibleChoicesForPlayer("bunker_archive.md", "vault_airlock", playerLevel = 1, playerToxicity = 20).first()
         assertEquals(1, eligibleChoicesLvl1.size)
 
-        val eligibleChoicesLvl3 = storyDao.getEligibleChoices("bunker_archive.md", "vault_airlock", playerLevel = 3, playerToxicity = 20).first()
+        val eligibleChoicesLvl3 = storyDao.getEligibleChoicesForPlayer("bunker_archive.md", "vault_airlock", playerLevel = 3, playerToxicity = 20).first()
         assertEquals(2, eligibleChoicesLvl3.size)
     }
 
     @Test
     fun testNarrativeProgressTracking() = runBlocking {
-        val progress = StoryProgress(
+        val progress = NarrativeProgressEntity(
             profileId = 1,
             currentScriptId = "chemopank_main.md",
             currentNodeId = "vault_airlock",

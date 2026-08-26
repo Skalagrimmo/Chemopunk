@@ -16,6 +16,7 @@ import com.example.data.MarkdownParser
 import com.example.data.NpcState
 import com.example.data.Player
 import com.example.data.Perk
+import com.example.data.ProceduralMapGenerator
 import com.example.data.Quest
 import com.example.data.QuestObjective
 import com.example.data.QuestStatus
@@ -471,7 +472,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     // endregion
 
-    fun synthesizeChem(chemReagents: Int, bioGel: Int) {
+    fun synthesizeChem(chemReagents: Int, bioGel: Int, qualityTier: String = "GOOD") {
         if (chemReagents <= 0) return
         viewModelScope.launch {
             val haveChem = inventoryRepository.getMaterialQuantity(CraftingMaterials.CHEM_REAGENT)
@@ -486,7 +487,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             inventoryRepository.addMaterialQuantity(CraftingMaterials.BIOGEL_VIAL, -bioGel)
             val science = _uiState.value.skills[SkillType.SCIENCE] ?: 0
             val balance = if (bioGel > 0) (chemReagents.toFloat() / (chemReagents + bioGel)) else 1f
-            val potency = (35 + science * 4 + (balance * 25).toInt()).coerceAtLeast(10)
+            val basePotency = (35 + science * 4 + (balance * 25).toInt()).coerceAtLeast(10)
+            val multiplier = when (qualityTier) {
+                "PERFECT" -> 1.5f
+                "WASTE" -> 0.5f
+                else -> 1.0f
+            }
+            val potency = (basePotency * multiplier).toInt().coerceAtLeast(5)
             val isPurge = bioGel >= chemReagents
             val name = if (isPurge) "Toxic Purge Chem" else "Battle Stim Chem"
             val item = Item(
@@ -497,10 +504,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 reduceToxicity = if (isPurge) potency else (potency / 2)
             )
             inventoryRepository.addItemFromDomain(item, rarity = ItemRarity.UNCOMMON, weightKg = 0.3f)
+            val qualityLabel = qualityTier.lowercase().replaceFirstChar { it.uppercase() }
             _uiState.update {
                 it.copy(
                     combatLogs = it.combatLogs + CombatLogEntry(
-                        "⚗ Synthesized $name (potency $potency HP) from $chemReagents reagent(s) + $bioGel biogel.",
+                        "⚗ Synthesized $name [$qualityLabel] (potency $potency HP) from $chemReagents reagent(s) + $bioGel biogel.",
                         isHeal = true
                     )
                 )
@@ -786,8 +794,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val ZONES = mapOf(
         "sector7" to Zone("sector7", "Sector 7 — Chemical Wasteland", "chemopank_world.md", 1.0f),
-        "sewers" to Zone("sewers", "Sector 7 — Toxic Sewers", "chemopank_world.md", 1.4f),
-        "surface" to Zone("surface", "Surface — Ruined City", "chemopank_world.md", 1.8f)
+        "sewers" to Zone("sewers", "Sector 7 — Toxic Sewers", "chemopank_world.md", 1.4f, useProcedural = true),
+        "surface" to Zone("surface", "Surface — Ruined City", "chemopank_world.md", 1.8f, useProcedural = true)
     )
     private val ZONE_ORDER = listOf("sector7", "sewers", "surface")
 
@@ -795,44 +803,136 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun travelToZone(zoneId: String) {
         val zone = ZONES[zoneId] ?: return
         val mult = zone.encounterMultiplier
-        val scaled = _uiState.value.activeEnemies.map { e ->
-            if (e.isAlive) e.copy(
-                hp = (e.hp * mult).toInt().coerceAtLeast(1),
-                maxHp = (e.maxHp * mult).toInt().coerceAtLeast(1),
-                attack = (e.attack * mult).toInt().coerceAtLeast(1)
-            ) else e
-        }
-        val tintedLights = _uiState.value.lightSources.map { l ->
-            l.copy(intensity = (l.intensity / kotlin.math.sqrt(mult.toDouble())).toFloat())
-        }
-        // Persist recruited companions as ally tokens in the new zone.
-        val allyTokens = _uiState.value.companions.map { c ->
-            com.example.data.Enemy(
-                id = c.id,
-                name = c.name,
-                hp = c.hp,
-                maxHp = c.maxHp,
-                attack = c.attack,
-                armor = 4,
-                toxicityDamage = 0,
-                asciiGlyph = 'V',
-                expReward = 0,
-                lootItemId = null,
-                x = (_uiState.value.player.x + 1).coerceAtLeast(0f),
-                y = _uiState.value.player.y,
-                isAlive = true,
-                state = NpcState.PATROL,
-                isAlly = true
+
+        if (zone.useProcedural) {
+            val zoneSeed = zoneId.hashCode().toLong() + System.currentTimeMillis()
+            val numEnemies = 3 + (mult * 2).toInt()
+            val procResult = ProceduralMapGenerator.generate(
+                width = 24,
+                height = 18,
+                seed = zoneSeed,
+                numEnemies = numEnemies,
+                numToxicPools = 2 + mult.toInt(),
+                numDoors = 2
             )
-        }
-        val allEnemies = scaled + allyTokens
-        _uiState.update {
-            it.copy(
-                currentZoneId = zoneId,
-                activeEnemies = allEnemies,
-                lightSources = tintedLights,
-                combatLogs = it.combatLogs + CombatLogEntry("⏏ Zone transit engaged: ${zone.name}. Threat level adjusted.")
+
+            val baseEnemies = procResult.enemySpawns.mapIndexed { idx, (ex, ey) ->
+                val glyph = when (idx % 3) {
+                    0 -> 'S'
+                    1 -> 'D'
+                    else -> 'M'
+                }
+                val name = when (glyph) {
+                    'S' -> "Mutated Acid Slug"
+                    'D' -> "Chem-Sentry Drone"
+                    else -> "Cyber-Mutant"
+                }
+                Enemy(
+                    id = "proc_enemy_$idx",
+                    name = name,
+                    hp = (30 * mult).toInt().coerceAtLeast(5),
+                    maxHp = (30 * mult).toInt().coerceAtLeast(5),
+                    attack = (8 * mult).toInt().coerceAtLeast(2),
+                    armor = (2 * mult).toInt(),
+                    toxicityDamage = (3 * mult).toInt(),
+                    asciiGlyph = glyph,
+                    expReward = (15 * mult).toInt(),
+                    lootItemId = null,
+                    x = ex,
+                    y = ey,
+                    isAlive = true,
+                    state = NpcState.PATROL
+                )
+            }
+            val scaledEnemies = initializeNpcStateMachines(baseEnemies, procResult.grid)
+
+            val (gridWithObjects, interactiveObjectsMap) = injectInteractiveObjects(procResult.grid)
+
+            val tintedLights = buildList {
+                add(LightSource(
+                    id = "proc_torch_1",
+                    gridX = procResult.playerStart.first + 2f,
+                    gridY = procResult.playerStart.second + 1f,
+                    colorR = 255, colorG = 175, colorB = 40,
+                    intensity = 1.2f, radius = 4.0f,
+                    type = LightType.POINT_TORCH,
+                    flickerFrequency = 6.0f, flickerIntensity = 0.2f
+                ))
+                add(LightSource(
+                    id = "proc_torch_2",
+                    gridX = procResult.exitPosition.first - 1f,
+                    gridY = procResult.exitPosition.second,
+                    colorR = 255, colorG = 185, colorB = 60,
+                    intensity = 1.3f, radius = 4.5f,
+                    type = LightType.POINT_TORCH,
+                    flickerFrequency = 7.0f, flickerIntensity = 0.22f
+                ))
+            }
+
+            val currentPlayer = _uiState.value.player.copy(
+                x = procResult.playerStart.first,
+                y = procResult.playerStart.second
             )
+            val allyTokens = _uiState.value.companions.map { c ->
+                Enemy(
+                    id = c.id, name = c.name, hp = c.hp, maxHp = c.maxHp,
+                    attack = c.attack, armor = 4, toxicityDamage = 0,
+                    asciiGlyph = 'V', expReward = 0, lootItemId = null,
+                    x = (currentPlayer.x + 1).coerceAtLeast(0f),
+                    y = currentPlayer.y,
+                    isAlive = true, state = NpcState.PATROL, isAlly = true
+                )
+            }
+            val allEnemies = scaledEnemies + allyTokens
+            val newDiscovered = computeFov(
+                procResult.playerStart.first.toInt(),
+                procResult.playerStart.second.toInt()
+            )
+            val initialQueue = buildTurnCombatQueue(currentPlayer, allEnemies, round = 1, currentActiveId = "player")
+
+            _uiState.update {
+                it.copy(
+                    player = currentPlayer,
+                    currentZoneId = zoneId,
+                    activeEnemies = allEnemies,
+                    turnQueueState = initialQueue,
+                    mapGrid = gridWithObjects,
+                    lightSources = tintedLights,
+                    discoveredTiles = newDiscovered,
+                    interactiveObjects = interactiveObjectsMap,
+                    combatLogs = it.combatLogs + CombatLogEntry("⏏ Zone transit engaged: ${zone.name}. Procedural layout generated. Threat level adjusted.")
+                )
+            }
+        } else {
+            val scaled = _uiState.value.activeEnemies.map { e ->
+                if (e.isAlive) e.copy(
+                    hp = (e.hp * mult).toInt().coerceAtLeast(1),
+                    maxHp = (e.maxHp * mult).toInt().coerceAtLeast(1),
+                    attack = (e.attack * mult).toInt().coerceAtLeast(1)
+                ) else e
+            }
+            val tintedLights = _uiState.value.lightSources.map { l ->
+                l.copy(intensity = (l.intensity / kotlin.math.sqrt(mult.toDouble())).toFloat())
+            }
+            val allyTokens = _uiState.value.companions.map { c ->
+                Enemy(
+                    id = c.id, name = c.name, hp = c.hp, maxHp = c.maxHp,
+                    attack = c.attack, armor = 4, toxicityDamage = 0,
+                    asciiGlyph = 'V', expReward = 0, lootItemId = null,
+                    x = (_uiState.value.player.x + 1).coerceAtLeast(0f),
+                    y = _uiState.value.player.y,
+                    isAlive = true, state = NpcState.PATROL, isAlly = true
+                )
+            }
+            val allEnemies = scaled + allyTokens
+            _uiState.update {
+                it.copy(
+                    currentZoneId = zoneId,
+                    activeEnemies = allEnemies,
+                    lightSources = tintedLights,
+                    combatLogs = it.combatLogs + CombatLogEntry("⏏ Zone transit engaged: ${zone.name}. Threat level adjusted.")
+                )
+            }
         }
     }
 

@@ -45,7 +45,8 @@ data class Zone(
     val name: String,
     val assetFileName: String,
     val encounterMultiplier: Float = 1.0f,
-    val lightTint: Long = 0xFFFFFFFF
+    val lightTint: Long = 0xFFFFFFFF,
+    val useProcedural: Boolean = false
 )
 
 data class InteractiveObject(

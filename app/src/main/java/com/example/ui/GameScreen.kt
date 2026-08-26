@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.Enemy
+import com.example.data.SkillType
 import com.example.data.StatusEffectType
 import com.example.ui.components.AsciiGlIsometricView
 import com.example.ui.components.AsciiIsometricView
@@ -399,10 +400,12 @@ fun GameScreen(viewModel: GameViewModel) {
                 ActiveModal.SYNTHESIS -> {
                     val chemCount = uiState.roomInventory.filter { it.itemId == "mat_chem_reagent" }.sumOf { it.quantity }
                     val bioCount = uiState.roomInventory.filter { it.itemId == "mat_biogel_vial" }.sumOf { it.quantity }
+                    val scienceSkill = uiState.skills[SkillType.SCIENCE] ?: 0
                     SynthesisModal(
                         chemReagentCount = chemCount,
                         bioGelCount = bioCount,
-                        onSynthesize = { chem, bio -> viewModel.synthesizeChem(chem, bio) },
+                        scienceSkill = scienceSkill,
+                        onSynthesize = { chem, bio, quality -> viewModel.synthesizeChem(chem, bio, quality) },
                         onClose = { viewModel.closeModal() }
                     )
                 }

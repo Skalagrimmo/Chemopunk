@@ -7,20 +7,13 @@ import com.example.data.Choice
 import com.example.data.Player
 import com.example.data.StoryNode
 import com.example.data.narrative.MarkdownNarrativeParser
-import com.example.data.narrative.NarrativeScriptDocument
 import com.example.data.room.BranchingChoiceEntity
 import com.example.data.room.GameDatabase
 import com.example.data.room.InventoryRepository
 import com.example.data.room.NarrativeNodeEntity
-import com.example.data.room.StoryBranchingChoice
-import com.example.data.room.StoryDao
-import com.example.data.room.StoryDatabase
-import com.example.data.room.StoryNodeWithChoices
-import com.example.data.room.StoryProgress
-import com.example.data.room.StorySceneNode
-import com.example.data.room.StoryScript
+import com.example.data.room.NarrativeProgressEntity
+import com.example.data.room.StoryNarrativeDao
 import com.example.data.room.StoryScriptEntity
-import com.example.data.room.StoryScriptWithGraph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,9 +30,6 @@ import org.json.JSONObject
 import java.io.InputStream
 import kotlin.random.Random
 
-/**
- * State of visual and logistical scene transition.
- */
 enum class SceneTransitionState {
     IDLE,
     ENTERING,
@@ -49,11 +39,8 @@ enum class SceneTransitionState {
     TERMINAL_NODE
 }
 
-/**
- * Evaluated model for a branching choice ready for UI rendering.
- */
 data class EvaluatedChoiceUiModel(
-    val choice: StoryBranchingChoice,
+    val choice: BranchingChoiceEntity,
     val isEligible: Boolean,
     val isHidden: Boolean,
     val lockReason: String? = null,
@@ -62,7 +49,7 @@ data class EvaluatedChoiceUiModel(
     val consequenceSummary: String = buildConsequenceSummary(choice)
 )
 
-private fun buildConsequenceSummary(choice: StoryBranchingChoice): String {
+private fun buildConsequenceSummary(choice: BranchingChoiceEntity): String {
     val deltas = mutableListOf<String>()
     if (choice.hpDelta > 0) deltas.add("+${choice.hpDelta} HP")
     else if (choice.hpDelta < 0) deltas.add("${choice.hpDelta} HP")
@@ -80,9 +67,6 @@ private fun buildConsequenceSummary(choice: StoryBranchingChoice): String {
     return deltas.joinToString(" | ")
 }
 
-/**
- * Event dispatched when an interactive or system action trigger occurs.
- */
 sealed class StoryActionTriggerEvent {
     data class SwitchToGameView(val payload: String?) : StoryActionTriggerEvent()
     data class InitiateCombat(val enemyId: String, val payload: String?) : StoryActionTriggerEvent()
@@ -93,15 +77,12 @@ sealed class StoryActionTriggerEvent {
     data class Notification(val message: String, val isWarning: Boolean = false) : StoryActionTriggerEvent()
 }
 
-/**
- * Full UI State representation for the Markdown Story Narrative engine.
- */
 data class StoryUiState(
     val isLoading: Boolean = true,
-    val currentScript: StoryScript? = null,
-    val currentNode: StorySceneNode? = null,
+    val currentScript: StoryScriptEntity? = null,
+    val currentNode: NarrativeNodeEntity? = null,
     val evaluatedChoices: List<EvaluatedChoiceUiModel> = emptyList(),
-    val availableScripts: List<StoryScript> = emptyList(),
+    val availableScripts: List<StoryScriptEntity> = emptyList(),
     val visitedNodeIds: List<String> = emptyList(),
     val navigationBreadcrumbs: List<String> = emptyList(),
     val storyFlags: Map<String, Boolean> = emptyMap(),
@@ -113,20 +94,16 @@ data class StoryUiState(
     val isCheckpoint: Boolean = false,
     val isTerminalNode: Boolean = false,
     val searchQuery: String = "",
-    val searchResults: List<StorySceneNode> = emptyList(),
+    val searchResults: List<NarrativeNodeEntity> = emptyList(),
     val playerStats: Player = Player(),
     val inventoryItemIds: Set<String> = emptySet(),
     val rawMarkdownPreview: String = "",
     val errorMessage: String? = null
 )
 
-/**
- * ViewModel that processes Markdown story scripts from the Room database,
- * manages persistent progress, and drives scene navigation and conditional choice logic.
- */
 class StoryViewModel(
     application: Application,
-    private val storyDao: StoryDao = StoryDatabase.getDatabase(application).storyDao(),
+    private val storyDao: StoryNarrativeDao = GameDatabase.getDatabase(application).storyNarrativeDao(),
     private val gameDatabase: GameDatabase = GameDatabase.getDatabase(application),
     private val autoInitDatabase: Boolean = true
 ) : AndroidViewModel(application) {
@@ -153,19 +130,14 @@ class StoryViewModel(
         observeScriptsList()
     }
 
-    /**
-     * Seeds and loads the initial Markdown narrative scripts into the Room database.
-     */
     fun initializeStoryDatabase() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Ensure default scripts are imported if DB is empty
                 val existingScripts = storyDao.getAllScripts().firstOrNull() ?: emptyList()
                 if (existingScripts.isEmpty()) {
                     seedDefaultMarkdownScripts()
                 }
 
-                // Load saved progress or initial script
                 val progress = storyDao.getProgressDirect(1)
                 val targetScriptId = progress?.currentScriptId ?: "chemopank_world.md"
                 val targetNodeId = progress?.currentNodeId ?: "start"
@@ -193,9 +165,6 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Observes real-time script documents from Room.
-     */
     private fun observeScriptsList() {
         viewModelScope.launch {
             storyDao.getAllScripts().collectLatest { scripts ->
@@ -204,38 +173,27 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Observes player inventory from Room to evaluate dynamic item requirements.
-     */
     private fun observeInventoryAndPlayer() {
         viewModelScope.launch {
             inventoryRepository.allInventoryItems.collectLatest { items ->
                 val itemIds = items.map { it.itemId }.toSet()
                 _uiState.update { it.copy(inventoryItemIds = itemIds) }
-                // Re-evaluate choices when inventory changes
                 reEvaluateCurrentChoices()
             }
         }
     }
 
-    /**
-     * Loads a specific story script and navigates to the given starting scene node.
-     */
     fun loadScript(scriptId: String, initialNodeId: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             loadScriptSync(scriptId, initialNodeId)
         }
     }
 
-    /**
-     * Synchronous suspend helper for loading a story script.
-     */
     suspend fun loadScriptSync(scriptId: String, initialNodeId: String? = null) {
         _uiState.update { it.copy(isLoading = true, transitionState = SceneTransitionState.TRANSITIONING) }
 
         var script = storyDao.getScriptByIdDirect(scriptId)
         if (script == null) {
-            // Try to import from assets if missing
             importScriptFromAsset(scriptId)
             script = storyDao.getScriptByIdDirect(scriptId)
         }
@@ -259,9 +217,6 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Navigates to a specific scene node within the active script.
-     */
     fun navigateToScene(nodeId: String) {
         val currentScriptId = _uiState.value.currentScript?.scriptId ?: return
         viewModelScope.launch(Dispatchers.IO) {
@@ -269,9 +224,6 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Internal implementation of scene navigation and state transitions.
-     */
     private suspend fun navigateToSceneInternal(
         scriptId: String,
         nodeId: String,
@@ -314,7 +266,6 @@ class StoryViewModel(
 
         val isTerminal = rawChoices.isEmpty()
 
-        // Sound effect cue
         node.soundEffectCue?.let { cue ->
             _actionEvents.send(StoryActionTriggerEvent.PlaySoundCue(cue))
         }
@@ -337,23 +288,16 @@ class StoryViewModel(
             )
         }
 
-        // Persist progress to Room
         saveProgress(scriptId, nodeId, updatedVisited, storyFlags)
     }
 
-    /**
-     * Executes a player-selected branching choice, applying state deltas and trigger logic.
-     */
-    fun selectChoice(choice: StoryBranchingChoice) {
+    fun selectChoice(choice: BranchingChoiceEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             selectChoiceSync(choice)
         }
     }
 
-    /**
-     * Synchronous suspend helper for selecting a choice.
-     */
-    suspend fun selectChoiceSync(choice: StoryBranchingChoice) {
+    suspend fun selectChoiceSync(choice: BranchingChoiceEntity) {
         val currentState = _uiState.value
         val player = currentState.playerStats
         val inventory = currentState.inventoryItemIds
@@ -371,7 +315,6 @@ class StoryViewModel(
             return
         }
 
-        // 1. Evaluate Chance / Probability Checks
         val isSuccess = if (choice.successProbability < 1.0f) {
             Random.nextFloat() <= choice.successProbability
         } else {
@@ -384,7 +327,6 @@ class StoryViewModel(
             choice.failureTargetNodeId ?: choice.targetNodeId
         }
 
-        // 2. Apply Player State Consequences (HP, Toxicity, Credits, EXP)
         val newPlayer = player.copy(
             hp = (player.hp + choice.hpDelta).coerceIn(0, player.maxHp),
             toxicity = (player.toxicity + choice.toxicityDelta).coerceIn(0, 100),
@@ -393,7 +335,6 @@ class StoryViewModel(
         )
         _uiState.update { it.copy(playerStats = newPlayer) }
 
-        // 3. Update Story Flags
         val updatedFlags = flags.toMutableMap()
         choice.setStoryFlag?.let { flag ->
             if (flag.isNotBlank()) updatedFlags[flag] = true
@@ -403,59 +344,48 @@ class StoryViewModel(
         }
         _uiState.update { it.copy(storyFlags = updatedFlags) }
 
-        // 4. Handle Item Rewards
         choice.rewardItemId?.let { rewardId ->
             if (rewardId.isNotBlank()) {
                 _actionEvents.send(StoryActionTriggerEvent.ItemAcquired(rewardId, 1))
             }
         }
 
-        // 5. Fire Choice Action Triggers & System Events
         choice.actionTrigger?.let { trigger ->
             if (trigger.isNotBlank()) {
                 dispatchActionTrigger(trigger, choice.triggerPayload)
             }
         }
 
-        // 6. Navigate to Target Scene Node
         val scriptId = choice.scriptId.ifBlank { currentState.currentScript?.scriptId ?: "chemopank_world.md" }
         navigateToSceneInternal(scriptId, targetNodeId, isBackNavigation = false)
     }
 
-    /**
-     * Evaluates a single choice against player stats, inventory items, and narrative flags.
-     */
     private fun evaluateChoice(
-        choice: StoryBranchingChoice,
+        choice: BranchingChoiceEntity,
         player: Player,
         inventory: Set<String>,
         flags: Map<String, Boolean>
     ): EvaluatedChoiceUiModel {
         val missingRequirements = mutableListOf<String>()
 
-        // 1. Level Check
         if (choice.requiredMinLevel > 0 && player.level < choice.requiredMinLevel) {
             missingRequirements.add("Requires Level ${choice.requiredMinLevel}")
         }
 
-        // 2. Max Toxicity Check
         if (player.toxicity > choice.requiredMaxToxicity) {
             missingRequirements.add("Toxicity too high (> ${choice.requiredMaxToxicity}%)")
         }
 
-        // 3. Min Credits Check
         if (choice.requiredMinCredits > 0 && player.credits < choice.requiredMinCredits) {
             missingRequirements.add("Requires ${choice.requiredMinCredits} Credits")
         }
 
-        // 4. Inventory Item Check
         choice.requiredItemId?.let { requiredItem ->
             if (requiredItem.isNotBlank() && !inventory.contains(requiredItem)) {
                 missingRequirements.add("Requires: $requiredItem")
             }
         }
 
-        // 5. Story Flag Check
         choice.requiredStoryFlag?.let { flag ->
             if (flag.isNotBlank() && flags[flag] != true) {
                 missingRequirements.add("Prerequisite flag '$flag' not discovered")
@@ -463,7 +393,7 @@ class StoryViewModel(
         }
 
         val isEligible = missingRequirements.isEmpty()
-        val lockReason = if (!isEligible) missingRequirements.joinToString(" • ") else null
+        val lockReason = if (!isEligible) missingRequirements.joinToString(" \u2022 ") else null
 
         return EvaluatedChoiceUiModel(
             choice = choice,
@@ -473,9 +403,6 @@ class StoryViewModel(
         )
     }
 
-    /**
-     * Dispatches system action triggers (e.g. gameplay switch, combat start, environmental hazards).
-     */
     private suspend fun dispatchActionTrigger(actionTrigger: String, payload: String?) {
         when {
             actionTrigger.equals("ACTION_GAMEVIEW", ignoreCase = true) -> {
@@ -494,9 +421,6 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Navigates back one step in the scene breadcrumbs.
-     */
     fun navigateBack(): Boolean {
         val breadcrumbs = _uiState.value.navigationBreadcrumbs
         if (breadcrumbs.size <= 1) return false
@@ -521,29 +445,23 @@ class StoryViewModel(
         return true
     }
 
-    /**
-     * Jumps directly to the last visited checkpoint node.
-     */
     fun jumpToCheckpoint() {
         val scriptId = _uiState.value.currentScript?.scriptId ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val checkpoints = storyDao.getCheckpoints(scriptId).firstOrNull() ?: emptyList()
+            val checkpointsFlow = storyDao.getCheckpointsForScript(scriptId)
+            val checkpoints = checkpointsFlow.firstOrNull() ?: emptyList()
             val visited = _uiState.value.visitedNodeIds.toSet()
             val lastVisitedCheckpoint = checkpoints.lastOrNull { visited.contains(it.nodeId) }
 
             if (lastVisitedCheckpoint != null) {
                 navigateToSceneInternal(scriptId, lastVisitedCheckpoint.nodeId, isBackNavigation = false)
             } else {
-                // Fallback to start
                 val startNode = _uiState.value.currentScript?.initialNodeId ?: "start"
                 navigateToSceneInternal(scriptId, startNode, isBackNavigation = false)
             }
         }
     }
 
-    /**
-     * Restarts the current story script from the beginning.
-     */
     fun restartScript() {
         val script = _uiState.value.currentScript ?: return
         viewModelScope.launch(Dispatchers.IO) {
@@ -557,9 +475,6 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Performs full-text search across dialogue markdown and scene descriptions.
-     */
     fun searchSceneContent(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
         if (query.isBlank()) {
@@ -568,14 +483,11 @@ class StoryViewModel(
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val results = storyDao.searchSceneContent(query).firstOrNull() ?: emptyList()
+            val results = storyDao.searchSceneText(query).firstOrNull() ?: emptyList()
             _uiState.update { it.copy(searchResults = results) }
         }
     }
 
-    /**
-     * Parses and imports a custom raw Markdown script into the Room database.
-     */
     fun importCustomMarkdownScript(
         scriptId: String,
         title: String,
@@ -594,73 +506,8 @@ class StoryViewModel(
                     isCustom = true
                 )
 
-                // Convert to StoryEntity structures
-                val storyScript = StoryScript(
-                    scriptId = scriptEntity.scriptId,
-                    title = scriptEntity.title,
-                    category = scriptEntity.category,
-                    description = scriptEntity.description,
-                    rawMarkdown = scriptEntity.rawMarkdown,
-                    initialNodeId = scriptEntity.initialNodeId,
-                    totalNodesCount = scriptEntity.totalNodesCount,
-                    isCustom = true,
-                    tags = scriptEntity.tags,
-                    sceneSummaryMarkdown = scriptEntity.sceneSummaryMarkdown
-                )
-
-                val storyNodes = nodes.map { n: NarrativeNodeEntity ->
-                    StorySceneNode(
-                        compositeId = n.compositeId,
-                        nodeId = n.nodeId,
-                        scriptId = n.scriptId,
-                        title = n.title,
-                        speaker = n.speaker,
-                        speakerMood = n.speakerMood,
-                        dialogueMarkdown = n.dialogueMarkdown,
-                        sceneDescriptionMarkdown = n.sceneDescriptionMarkdown,
-                        category = n.category,
-                        bgAtmosphere = n.bgAtmosphere,
-                        soundEffectCue = n.soundEffectCue,
-                        asciiArtScene = n.asciiArtScene,
-                        weatherEffect = n.weatherEffect,
-                        requiredStoryFlag = n.requiredStoryFlag,
-                        isCheckpoint = n.isCheckpoint,
-                        orderIndex = n.orderIndex
-                    )
-                }
-
-                val storyChoices = choices.map { c: BranchingChoiceEntity ->
-                    StoryBranchingChoice(
-                        compositeChoiceId = c.compositeChoiceId,
-                        scriptId = c.scriptId,
-                        nodeId = c.nodeId,
-                        choiceIndex = c.choiceIndex,
-                        label = c.label,
-                        targetNodeId = c.targetNodeId,
-                        branchingConditionType = c.branchingConditionType,
-                        conditionExpression = c.conditionExpression,
-                        requiredItemId = c.requiredItemId,
-                        requiredMinLevel = c.requiredMinLevel,
-                        requiredMaxToxicity = c.requiredMaxToxicity,
-                        requiredMinCredits = c.requiredMinCredits,
-                        requiredSkillName = c.requiredSkillName,
-                        requiredSkillLevel = c.requiredSkillLevel,
-                        requiredStoryFlag = c.requiredStoryFlag,
-                        successProbability = c.successProbability,
-                        failureTargetNodeId = c.failureTargetNodeId,
-                        toxicityDelta = c.toxicityDelta,
-                        hpDelta = c.hpDelta,
-                        creditsDelta = c.creditsDelta,
-                        expReward = c.expReward,
-                        rewardItemId = c.rewardItemId,
-                        setStoryFlag = c.setStoryFlag,
-                        actionTrigger = c.actionTrigger,
-                        triggerPayload = c.triggerPayload
-                    )
-                }
-
-                storyDao.saveFullScript(storyScript, storyNodes, storyChoices)
-                loadScriptSync(storyScript.scriptId)
+                storyDao.saveFullScript(scriptEntity, nodes, choices)
+                loadScriptSync(scriptEntity.scriptId)
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -672,9 +519,6 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Helper to import default bundled assets into Room.
-     */
     private suspend fun importScriptFromAsset(fileName: String) = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
         val rawText = try {
@@ -690,72 +534,7 @@ class StoryViewModel(
         )
         val (scriptEntity, nodes, choices) = parsedDoc.toRoomEntities()
 
-        val storyScript = StoryScript(
-            scriptId = scriptEntity.scriptId,
-            title = scriptEntity.title,
-            category = scriptEntity.category,
-            description = scriptEntity.description,
-            rawMarkdown = scriptEntity.rawMarkdown,
-            initialNodeId = scriptEntity.initialNodeId,
-            totalNodesCount = scriptEntity.totalNodesCount,
-            author = scriptEntity.author,
-            isCustom = false,
-            tags = scriptEntity.tags,
-            sceneSummaryMarkdown = scriptEntity.sceneSummaryMarkdown
-        )
-
-        val storyNodes = nodes.map { n: NarrativeNodeEntity ->
-            StorySceneNode(
-                compositeId = n.compositeId,
-                nodeId = n.nodeId,
-                scriptId = n.scriptId,
-                title = n.title,
-                speaker = n.speaker,
-                speakerMood = n.speakerMood,
-                dialogueMarkdown = n.dialogueMarkdown,
-                sceneDescriptionMarkdown = n.sceneDescriptionMarkdown,
-                category = n.category,
-                bgAtmosphere = n.bgAtmosphere,
-                soundEffectCue = n.soundEffectCue,
-                asciiArtScene = n.asciiArtScene,
-                weatherEffect = n.weatherEffect,
-                requiredStoryFlag = n.requiredStoryFlag,
-                isCheckpoint = n.isCheckpoint,
-                orderIndex = n.orderIndex
-            )
-        }
-
-        val storyChoices = choices.map { c: BranchingChoiceEntity ->
-            StoryBranchingChoice(
-                compositeChoiceId = c.compositeChoiceId,
-                scriptId = c.scriptId,
-                nodeId = c.nodeId,
-                choiceIndex = c.choiceIndex,
-                label = c.label,
-                targetNodeId = c.targetNodeId,
-                branchingConditionType = c.branchingConditionType,
-                conditionExpression = c.conditionExpression,
-                requiredItemId = c.requiredItemId,
-                requiredMinLevel = c.requiredMinLevel,
-                requiredMaxToxicity = c.requiredMaxToxicity,
-                requiredMinCredits = c.requiredMinCredits,
-                requiredSkillName = c.requiredSkillName,
-                requiredSkillLevel = c.requiredSkillLevel,
-                requiredStoryFlag = c.requiredStoryFlag,
-                successProbability = c.successProbability,
-                failureTargetNodeId = c.failureTargetNodeId,
-                toxicityDelta = c.toxicityDelta,
-                hpDelta = c.hpDelta,
-                creditsDelta = c.creditsDelta,
-                expReward = c.expReward,
-                rewardItemId = c.rewardItemId,
-                setStoryFlag = c.setStoryFlag,
-                actionTrigger = c.actionTrigger,
-                triggerPayload = c.triggerPayload
-            )
-        }
-
-        storyDao.saveFullScript(storyScript, storyNodes, storyChoices)
+        storyDao.saveFullScript(scriptEntity, nodes, choices)
     }
 
     private suspend fun seedDefaultMarkdownScripts() = withContext(Dispatchers.IO) {
@@ -764,7 +543,6 @@ class StoryViewModel(
             try {
                 importScriptFromAsset(file)
             } catch (ignored: Exception) {
-                // Ignore missing file during early tests
             }
         }
     }
@@ -783,9 +561,6 @@ class StoryViewModel(
         }
     }
 
-    /**
-     * Updates player statistics dynamically (e.g. from combat or external game state).
-     */
     fun updatePlayerState(player: Player) {
         _uiState.update { it.copy(playerStats = player) }
         reEvaluateCurrentChoices()
@@ -797,7 +572,7 @@ class StoryViewModel(
         visited: List<String>,
         flags: Map<String, Boolean>
     ) {
-        val progress = StoryProgress(
+        val progress = NarrativeProgressEntity(
             profileId = 1,
             currentScriptId = scriptId,
             currentNodeId = nodeId,

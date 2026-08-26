@@ -5,12 +5,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.Player
+import com.example.data.room.BranchingChoiceEntity
 import com.example.data.room.GameDatabase
-import com.example.data.room.StoryBranchingChoice
-import com.example.data.room.StoryDao
-import com.example.data.room.StoryDatabase
-import com.example.data.room.StorySceneNode
-import com.example.data.room.StoryScript
+import com.example.data.room.NarrativeNodeEntity
+import com.example.data.room.StoryNarrativeDao
 import com.example.viewmodel.SceneTransitionState
 import com.example.viewmodel.StoryViewModel
 import kotlinx.coroutines.Dispatchers
@@ -29,44 +27,35 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/**
- * Unit tests verifying StoryViewModel processing of Markdown story scripts from Room,
- * state transitions, scene navigation, and conditional choice logic.
- */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class StoryViewModelTest {
 
     private lateinit var context: Application
-    private lateinit var storyDb: StoryDatabase
     private lateinit var gameDb: GameDatabase
-    private lateinit var storyDao: StoryDao
+    private lateinit var storyDao: StoryNarrativeDao
     private lateinit var viewModel: StoryViewModel
 
     @Before
     fun setup() {
         Dispatchers.setMain(StandardTestDispatcher())
         context = ApplicationProvider.getApplicationContext()
-        storyDb = Room.inMemoryDatabaseBuilder(context, StoryDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
         gameDb = Room.inMemoryDatabaseBuilder(context, GameDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        storyDao = storyDb.storyDao()
+        storyDao = gameDb.storyNarrativeDao()
         viewModel = StoryViewModel(context, storyDao, gameDb, autoInitDatabase = false)
     }
 
     @After
     fun tearDown() {
         Dispatchers.resetMain()
-        storyDb.close()
         gameDb.close()
     }
 
     @Test
     fun testScriptProcessingAndSceneNavigation() = runBlocking {
-        val script = StoryScript(
+        val script = com.example.data.room.StoryScriptEntity(
             scriptId = "chem_bunker.md",
             title = "Sub-Level Bunker",
             category = "CAMPAIGN",
@@ -74,7 +63,7 @@ class StoryViewModelTest {
             totalNodesCount = 2
         )
 
-        val node1 = StorySceneNode(
+        val node1 = NarrativeNodeEntity(
             compositeId = "chem_bunker.md_room_1",
             nodeId = "room_1",
             scriptId = "chem_bunker.md",
@@ -86,7 +75,7 @@ class StoryViewModelTest {
             orderIndex = 0
         )
 
-        val node2 = StorySceneNode(
+        val node2 = NarrativeNodeEntity(
             compositeId = "chem_bunker.md_room_2",
             nodeId = "room_2",
             scriptId = "chem_bunker.md",
@@ -98,7 +87,7 @@ class StoryViewModelTest {
             orderIndex = 1
         )
 
-        val choiceToRoom2 = StoryBranchingChoice(
+        val choiceToRoom2 = BranchingChoiceEntity(
             compositeChoiceId = "chem_bunker.md_room_1_0",
             scriptId = "chem_bunker.md",
             nodeId = "room_1",
@@ -113,7 +102,6 @@ class StoryViewModelTest {
 
         storyDao.saveFullScript(script, listOf(node1, node2), listOf(choiceToRoom2))
 
-        // Load script into ViewModel
         viewModel.loadScriptSync("chem_bunker.md", "room_1")
 
         val state1 = viewModel.uiState.value
@@ -124,7 +112,6 @@ class StoryViewModelTest {
         assertEquals(1, state1.evaluatedChoices.size)
         assertTrue(state1.evaluatedChoices.first().isEligible)
 
-        // Execute choice transition to Room 2
         viewModel.selectChoiceSync(choiceToRoom2)
 
         val state2 = viewModel.uiState.value
@@ -134,7 +121,6 @@ class StoryViewModelTest {
         assertTrue(state2.visitedNodeIds.contains("room_2"))
         assertTrue(state2.isTerminalNode)
 
-        // Test Breadcrumb back navigation
         val navigatedBack = viewModel.navigateBackSync()
         assertTrue(navigatedBack)
 
@@ -144,14 +130,14 @@ class StoryViewModelTest {
 
     @Test
     fun testConditionalChoiceEvaluationAndStatPrerequisites() = runBlocking {
-        val script = StoryScript(
+        val script = com.example.data.room.StoryScriptEntity(
             scriptId = "chem_security.md",
             title = "Security Vault",
             category = "CAMPAIGN",
             initialNodeId = "vault_door"
         )
 
-        val node = StorySceneNode(
+        val node = NarrativeNodeEntity(
             compositeId = "chem_security.md_vault_door",
             nodeId = "vault_door",
             scriptId = "chem_security.md",
@@ -160,8 +146,7 @@ class StoryViewModelTest {
             orderIndex = 0
         )
 
-        // Choice requires Level 4 and item 'passcard'
-        val highLevelChoice = StoryBranchingChoice(
+        val highLevelChoice = BranchingChoiceEntity(
             compositeChoiceId = "chem_security.md_vault_door_0",
             scriptId = "chem_security.md",
             nodeId = "vault_door",
@@ -174,7 +159,6 @@ class StoryViewModelTest {
 
         storyDao.saveFullScript(script, listOf(node), listOf(highLevelChoice))
 
-        // Set low-level player
         viewModel.updatePlayerState(Player(level = 1, toxicity = 10))
         viewModel.loadScriptSync("chem_security.md", "vault_door")
 
@@ -185,10 +169,8 @@ class StoryViewModelTest {
         assertNotNull(choiceEvalLow.lockReason)
         assertTrue(choiceEvalLow.lockReason?.contains("Level 4") == true)
 
-        // Level up player
         viewModel.updatePlayerState(Player(level = 5, toxicity = 10))
 
-        // Even with level 5, still missing 'passcard'
         viewModel.loadScriptSync("chem_security.md", "vault_door")
         val choiceEvalStillLocked = viewModel.uiState.value.evaluatedChoices.first()
         assertFalse(choiceEvalStillLocked.isEligible)

@@ -2418,7 +2418,8 @@ fun PerkSelectModal(
 fun SynthesisModal(
     chemReagentCount: Int,
     bioGelCount: Int,
-    onSynthesize: (Int, Int) -> Unit,
+    scienceSkill: Int,
+    onSynthesize: (Int, Int, String) -> Unit,
     onClose: () -> Unit
 ) {
     var chem by remember { mutableStateOf(1) }
@@ -2430,7 +2431,7 @@ fun SynthesisModal(
     ImmersiveModal(title = "CHEM SYNTHESIS", onClose = onClose) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
             Text(
-                "Mix reagents to brew field chems. More Biogel → Toxic Purge, more Reagent → Battle Stim. Science skill boosts potency.",
+                "Mix reagents to brew field chems. Time the synthesis slider for maximum potency.",
                 color = ImmersiveText,
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace
@@ -2456,14 +2457,16 @@ fun SynthesisModal(
             Stepper("Bio-Gel Vial", bio, bioGelCount, { clampBio(bio - 1) }, { clampBio(bio + 1) })
 
             Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = { onSynthesize(chem, bio) },
-                enabled = chem > 0,
-                colors = ButtonDefaults.buttonColors(containerColor = ImmersiveAccentOrange),
-                modifier = Modifier.fillMaxWidth().testTag("btn_brew_chem")
-            ) {
-                Text("⚗ BREW CHEM", color = ImmersiveBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-            }
+
+            SynthesisMiniGame(
+                scienceSkill = scienceSkill,
+                onBrew = { quality ->
+                    if (chem > 0) {
+                        onSynthesize(chem, bio, quality.name)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
