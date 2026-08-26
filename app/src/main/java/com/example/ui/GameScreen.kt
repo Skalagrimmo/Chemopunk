@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +59,8 @@ import com.example.ui.components.SkillsModal
 import com.example.ui.components.PerkSelectModal
 import com.example.ui.components.TradeModal
 import com.example.ui.components.SynthesisModal
+import com.example.ui.components.DayNightIndicator
+import com.example.ui.components.MinimapOverlay
 import com.example.ui.components.RadialQuickActionMenu
 import com.example.ui.components.StoryDialogueScreen
 import com.example.ui.components.StoryModal
@@ -91,6 +95,7 @@ fun GameScreen(viewModel: GameViewModel) {
     var radialTouchOffset by remember { mutableStateOf(Offset(200f, 300f)) }
     var radialTargetTile by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var radialTargetEnemy by remember { mutableStateOf<Enemy?>(null) }
+    var dayTint by remember { mutableStateOf(Color.Transparent) }
 
     Scaffold(
         modifier = Modifier
@@ -194,6 +199,30 @@ fun GameScreen(viewModel: GameViewModel) {
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+
+                    // Day/Night ambient tint overlay
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(dayTint)
+                    )
+
+                    // World overlays: day/night clock + mini-map confined to the viewport
+                    DayNightIndicator(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 8.dp, end = 8.dp)
+                    ) { dayTint = it }
+
+                    MinimapOverlay(
+                        mapGrid = uiState.mapGrid,
+                        discovered = uiState.discoveredTiles,
+                        player = uiState.player,
+                        enemies = uiState.activeEnemies,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 8.dp, bottom = 8.dp)
+                    )
                 }
 
                 // 3. Ergonomic Smartphone Bottom Thumb Deck (8-Way D-Pad + Primary Actions)
