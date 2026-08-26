@@ -23,6 +23,20 @@ enum class InteractiveObjectType(val glyph: Char, val label: String) {
 }
 
 /**
+ * World factions tracked by the reputation system. Standing ranges roughly -100 (hostile)
+ * to +100 (allied) and influences vendor pricing.
+ */
+enum class Faction(val id: String, val label: String) {
+    RAIDERS("raiders", "Raiders"),
+    SCIENTISTS("scientists", "Scientists"),
+    MUTANTS("mutants", "Mutants");
+
+    companion object {
+        fun fromId(id: String): Faction? = values().firstOrNull { it.id == id }
+    }
+}
+
+/**
  * A distinct explorable region. Each zone can load its own markdown map asset,
  * apply an encounter difficulty multiplier, and tint the dynamic lighting.
  */
@@ -43,6 +57,43 @@ data class InteractiveObject(
     val description: String = "",
     // For SWITCH: the light source id it toggles (or null to simply brighten the area)
     val linkedLightId: String? = null
+)
+
+/** Side-effect triggered when a dialogue option is selected. */
+enum class DialogueAction { NONE, OPEN_TRADE, CLOSE }
+
+data class DialogueOption(
+    val label: String,
+    val nextNodeId: String? = null,
+    val action: DialogueAction = DialogueAction.NONE
+)
+
+data class DialogueNode(
+    val id: String,
+    val speaker: String,
+    val text: String,
+    val options: List<DialogueOption> = emptyList()
+)
+
+data class DialogueTree(
+    val npcId: String,
+    val startNodeId: String,
+    val nodes: Map<String, DialogueNode>
+) {
+    fun node(id: String): DialogueNode? = nodes[id]
+}
+
+/**
+ * A recruitable ally. Companions grant a passive combat bonus (attack) and are tracked
+ * in GameUiState. Full follower AI/inventory is a future expansion.
+ */
+data class Companion(
+    val id: String,
+    val name: String,
+    val hp: Int = 60,
+    val maxHp: Int = 60,
+    val attack: Int = 8,
+    val quip: String = "On your six."
 )
 
 /**

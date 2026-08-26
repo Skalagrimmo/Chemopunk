@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.Faction
 import com.example.data.Player
 import com.example.engine.AmbientAudioProfile
 import com.example.ui.theme.AcidYellow
@@ -71,6 +72,8 @@ fun HudOverlay(
     onOpenSkills: () -> Unit = {},
     onOpenSynthesis: () -> Unit = {},
     zoneName: String = "Sector 7",
+    factionReps: Map<String, Int> = emptyMap(),
+    companionCount: Int = 0,
     onTogglePalette: () -> Unit = {},
     onToggleAudioMute: () -> Unit = {},
     isEncumbered: Boolean = false
@@ -156,6 +159,54 @@ fun HudOverlay(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Faction.values().forEach { f ->
+                            val standing = (factionReps[f.id] ?: 0).coerceIn(-100, 100)
+                            val fraction = ((standing + 100) / 200f).coerceIn(0f, 1f)
+                            val barColor = when {
+                                standing > 0 -> PhosphorGreen
+                                standing < 0 -> ToxicRed
+                                else -> ImmersiveTextMuted
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                Text(
+                                    text = f.label.split(" ").first().take(3).uppercase(),
+                                    color = ImmersiveTextMuted,
+                                    fontSize = 6.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .width(30.dp)
+                                        .height(3.dp)
+                                        .background(ImmersiveSurfaceVariant)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(fraction)
+                                            .height(3.dp)
+                                            .background(barColor)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (companionCount > 0) {
+                        Text(
+                            text = "⚑ Allies: $companionCount",
+                            color = ImmersiveTeal,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

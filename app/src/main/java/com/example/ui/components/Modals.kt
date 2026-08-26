@@ -2473,6 +2473,7 @@ fun TradeModal(
     shopItems: List<NpcShopEntity>,
     ownedItems: List<InventoryItemEntity>,
     playerCredits: Int,
+    factionReps: Map<String, Int> = emptyMap(),
     onBuy: (String) -> Unit,
     onSell: (String) -> Unit,
     onClose: () -> Unit
@@ -2493,6 +2494,9 @@ fun TradeModal(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(shopItems, key = { it.itemId }) { item ->
+                    val standing = factionReps[item.faction] ?: 0
+                    val buyFactor = (1f - standing / 200f).coerceIn(0.6f, 1.4f)
+                    val cost = (item.buyPrice * buyFactor).toInt()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2502,11 +2506,11 @@ fun TradeModal(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(item.name, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                            Text("${item.type} • BUY ${item.buyPrice}cr (stock ${item.stock})", color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                            Text("${item.type} • BUY ${cost}cr (stock ${item.stock})", color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
                         }
                         Button(
                             onClick = { onBuy(item.itemId) },
-                            enabled = item.stock > 0 && playerCredits >= item.buyPrice,
+                            enabled = item.stock > 0 && playerCredits >= cost,
                             colors = ButtonDefaults.buttonColors(containerColor = if (item.stock > 0) ImmersiveTeal else ImmersiveSurfaceVariant),
                             modifier = Modifier.testTag("buy_${item.itemId}")
                         ) {
@@ -2522,6 +2526,9 @@ fun TradeModal(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(ownedItems, key = { it.itemId }) { item ->
+                    val sStanding = factionReps["scientists"] ?: 0
+                    val sellFactor = (0.5f + sStanding / 200f).coerceIn(0.5f, 1.5f)
+                    val sellValue = (item.creditValue * sellFactor).toInt()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2531,7 +2538,7 @@ fun TradeModal(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(item.name, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                            Text("SELL ${item.creditValue}cr", color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                            Text("SELL ${sellValue}cr", color = ImmersiveTextMuted, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
                         }
                         Button(
                             onClick = { onSell(item.itemId) },
@@ -2542,6 +2549,36 @@ fun TradeModal(
                             Text("SELL", color = ImmersiveBackground, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 9.sp)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DialogueModal(
+    tree: com.example.data.DialogueTree,
+    currentNodeId: String,
+    onSelect: (com.example.data.DialogueOption) -> Unit,
+    onClose: () -> Unit
+) {
+    val node = tree.node(currentNodeId)
+    ImmersiveModal(title = node?.speaker ?: "CONVERSATION", onClose = onClose) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Text(
+                text = node?.text ?: "",
+                color = ImmersiveText,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            (node?.options ?: emptyList()).forEach { opt ->
+                Button(
+                    onClick = { onSelect(opt) },
+                    colors = ButtonDefaults.buttonColors(containerColor = ImmersiveSurfaceVariant),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).testTag("dialogue_${opt.label}")
+                ) {
+                    Text(opt.label, color = ImmersiveText, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                 }
             }
         }

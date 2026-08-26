@@ -86,6 +86,10 @@ data class GameUiState(
     val acquiredPerks: List<com.example.data.Perk> = emptyList(),
     val pendingPerkChoices: List<com.example.data.Perk> = emptyList(),
     val shopItems: List<com.example.data.room.NpcShopEntity> = emptyList(),
+    val factionReps: Map<String, Int> = emptyMap(), // faction id -> standing (-100..100)
+    val dialogueTree: com.example.data.DialogueTree? = null,
+    val dialogueNodeId: String = "",
+    val companions: List<com.example.data.Companion> = emptyList()
     val screenShakeIntensity: Float = 0f,
     val screenShakeStartTime: Long = 0L,
     val currentViewMode: ViewMode = ViewMode.ISOMETRIC_WORLD,
@@ -116,7 +120,8 @@ enum class ActiveModal {
     SKILLS,
     PERK_SELECT,
     TRADE,
-    SYNTHESIS
+    SYNTHESIS,
+    DIALOGUE
 }
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -135,7 +140,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         inventoryDao = database.inventoryDao(),
         profileDao = database.characterProfileDao(),
         perkDao = database.perkDao(),
-        shopDao = database.shopDao()
+        shopDao = database.shopDao(),
+        factionRepDao = database.factionRepDao()
     )
     val storyNarrativeRepository = StoryNarrativeRepository(
         storyDao = database.storyNarrativeDao(),
@@ -390,6 +396,81 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openSynthesisModal() = openModal(ActiveModal.SYNTHESIS)
 
+    // region NPC Dialogue
+
+    /** Build and open a branching dialogue tree for the given NPC id. */
+    fun startDialogue(npcId: String) {
+        val tree = buildDialogueTree(npcId)
+        _uiState.update {
+            it.copy(
+                dialogueTree = tree,
+                dialogueNodeId = tree.startNodeId,
+                activeModal = ActiveModal.DIALOGUE
+            )
+        }
+    }
+
+    private fun buildDialogueTree(npcId: String): com.example.data.DialogueTree {
+        return when (npcId) {
+            "merchant_trader" -> com.example.data.DialogueTree(
+                npcId = npcId,
+                startNodeId = "greet",
+                nodes = mapOf(
+                    "greet" to com.example.data.DialogueNode(
+                        id = "greet",
+                        speaker = "ROVING TRADER",
+                        text = "Fresh stims, real credits-only. The mutants pay in teeth, but I don't take teeth.",
+                        options = listOf(
+                            com.example.data.DialogueOption("Browse goods", action = com.example.data.DialogueAction.OPEN_TRADE),
+                            com.example.data.DialogueOption("Talk about the sector", nextNodeId = "lore"),
+                            com.example.data.DialogueOption("Leave", action = com.example.data.DialogueAction.CLOSE)
+                        )
+                    ),
+                    "lore" to com.example.data.DialogueNode(
+                        id = "lore",
+                        speaker = "ROVING TRADER",
+                        text = "Sector 7's toxins are rising. The Scientists pay well for clean samples — the Raiders pay better for the opposite.",
+                        options = listOf(
+                            com.example.data.DialogueOption("Back", nextNodeId = "greet"),
+                            com.example.data.DialogueOption("Leave", action = com.example.data.DialogueAction.CLOSE)
+                        )
+                    )
+                )
+            )
+            else -> com.example.data.DialogueTree(
+                npcId = npcId,
+                startNodeId = "root",
+                nodes = mapOf(
+                    "root" to com.example.data.DialogueNode(
+                        id = "root",
+                        speaker = "STRANGER",
+                        text = "..." ,
+                        options = listOf(com.example.data.DialogueOption("Leave", action = com.example.data.DialogueAction.CLOSE))
+                    )
+                )
+            )
+        }
+    }
+
+    fun selectDialogueOption(option: com.example.data.DialogueOption) {
+        when (option.action) {
+            com.example.data.DialogueAction.OPEN_TRADE -> {
+                _uiState.update { it.copy(activeModal = ActiveModal.TRADE) }
+            }
+            com.example.data.DialogueAction.CLOSE -> closeModal()
+            else -> {
+                val next = option.nextNodeId
+                if (next != null) {
+                    _uiState.update { it.copy(dialogueNodeId = next) }
+                } else {
+                    closeModal()
+                }
+            }
+        }
+    }
+
+    // endregion
+
     fun synthesizeChem(chemReagents: Int, bioGel: Int) {
         if (chemReagents <= 0) return
         viewModelScope.launch {
@@ -540,17 +621,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             InteractiveObjectType.BEACON -> {
                 val revealed = computeFov(obj.x, obj.y, radius = 8) + state.discoveredTiles
                 logs.add(CombatLogEntry("☉ Rescue beacon activated! Extraction forces have been signaled."))
-                _uiState.update { it.copy(discoveredTiles = revealed) }
+                val companions = state.companions
+                val updatedCompanions = if (companions.none { it.id == "vex" }) {
+                    logs.add(CombatLogEntry("⚑ Vex, a discharged extraction trooper, joins your squad.", isHeal = true))
+                    companions + com.example.data.Companion(
+                        id = "vex",
+                        name = "Vex",
+                        hp = 60,
+                        maxHp = 60,
+                        attack = 8,
+                        quip = "On your six."
+                    )
+                } else {
+                    logs.add(CombatLogEntry("⚑ Vex is already with your squad."))
+                    companions
+                }
+                _uiState.update { it.copy(discoveredTiles = revealed, companions = updatedCompanions, combatLogs = logs) }
                 spawnFloatingText("BEACON ONLINE", obj.x.toFloat(), obj.y.toFloat(), 0xFF4FD1C5)
             }
             InteractiveObjectType.MERCHANT -> {
-                logs.add(CombatLogEntry("₿ Black-market vendor opened trade negotiations."))
-                _uiState.update {
-                    it.copy(
-                        combatLogs = logs,
-                        activeModal = ActiveModal.TRADE
-                    )
-                }
+                startDialogue("merchant_trader")
                 return
             }
             InteractiveObjectType.ZONE_EXIT -> {
@@ -658,6 +748,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
+            inventoryRepository.factionReps.collect { reps ->
+                _uiState.update { it.copy(factionReps = reps) }
+            }
+        }
+
+        viewModelScope.launch {
             storyNarrativeRepository.allScripts.collect { scripts ->
                 _uiState.update { it.copy(roomScripts = scripts) }
             }
@@ -726,6 +822,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 startingCredits = data.config.startingCredits
             )
             inventoryRepository.seedShopIfEmpty()
+            inventoryRepository.seedFactionRepsIfEmpty()
 
             // Synchronize and ingest Markdown narrative scripts into Room database
             storyNarrativeRepository.syncDefaultAssetsFromContext(getApplication())
@@ -1634,7 +1731,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val enemyCorrosion = enemy.statusEffects.filter { it.type == StatusEffectType.CORROSION }.sumOf { it.magnitude }
         val effectiveEnemyArmor = (enemy.armor - enemyCorrosion).coerceAtLeast(0)
 
-        val baseDmg = (player.attackPower + adrenalineBonus + (meleeBonus * 2 * bladeDancerMeleeMult).toInt() + weaponDmg + chipDmg - effectiveEnemyArmor).coerceAtLeast(3)
+        val companionBonus = _uiState.value.companions.sumOf { it.attack }
+        val baseDmg = (player.attackPower + adrenalineBonus + (meleeBonus * 2 * bladeDancerMeleeMult).toInt() + weaponDmg + chipDmg + companionBonus - effectiveEnemyArmor).coerceAtLeast(3)
         // Broken weapons deal reduced damage (in addition to the jam chance above)
         val brokenMult = if (weaponBroken) 0.5f else 1f
         val totalDmg = if (isMiss) 0 else ((if (isCrit) (baseDmg * 1.5f) else baseDmg.toFloat()) * brokenMult).toInt()

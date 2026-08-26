@@ -17,7 +17,8 @@ class InventoryRepository(
     private val inventoryDao: InventoryDao,
     private val profileDao: CharacterProfileDao,
     private val perkDao: PerkDao,
-    private val shopDao: ShopDao
+    private val shopDao: ShopDao,
+    private val factionRepDao: FactionRepDao
 ) {
     val allInventoryItems: Flow<List<InventoryItemEntity>> = inventoryDao.getAllInventoryItems()
 
@@ -28,6 +29,9 @@ class InventoryRepository(
     val acquiredPerks: Flow<List<PerkEntity>> = perkDao.getAcquiredPerks()
 
     val shopItems: Flow<List<NpcShopEntity>> = shopDao.getShopItems()
+
+    val factionReps: Flow<Map<String, Int>> =
+        factionRepDao.observeFactionReps().map { list -> list.associate { it.faction to it.standing } }
 
     suspend fun allocateSkillPoint(skill: com.example.data.SkillType) {
         val p = profileDao.getProfileDirect(1) ?: return
@@ -489,11 +493,11 @@ data class ScrapResult(
     suspend fun seedShopIfEmpty() {
         if (shopDao.findShopItem("shop_stimpack") != null) return
         val stock = listOf(
-            NpcShopEntity("shop_stimpack", "Combat Stimpack", "CONSUMABLE", "Field-grade healing stim.", healHp = 35, reduceToxicity = 15, rarity = ItemRarity.UNCOMMON.name, weightKg = 0.3f, buyPrice = 40, sellPrice = 18, stock = 8),
-            NpcShopEntity("shop_antitoxin", "Anti-Toxin Vial", "CONSUMABLE", "Neutralizes toxic buildup.", healHp = 10, reduceToxicity = 45, rarity = ItemRarity.COMMON.name, weightKg = 0.3f, buyPrice = 25, sellPrice = 10, stock = 8),
-            NpcShopEntity("shop_plasma_scalpel", "Plasma Scalpel", "WEAPON", "Ranged energy blade.", damage = 22, rarity = ItemRarity.UNCOMMON.name, weightKg = 2.0f, buyPrice = 180, sellPrice = 80, stock = 3),
-            NpcShopEntity("shop_hazard_kevlar", "Hazard Kevlar", "ARMOR", "Ballistic hazmat plating.", defense = 14, rarity = ItemRarity.RARE.name, weightKg = 5.0f, buyPrice = 220, sellPrice = 100, stock = 2),
-            NpcShopEntity("shop_reflex_chip", "Reflex Chip", "NEURAL_CHIP", "Boosts crit reflex.", damage = 6, defense = 4, criticalBonus = 0.15f, rarity = ItemRarity.RARE.name, weightKg = 0.2f, buyPrice = 260, sellPrice = 120, stock = 2)
+            NpcShopEntity("shop_stimpack", "Combat Stimpack", "CONSUMABLE", "Field-grade healing stim.", healHp = 35, reduceToxicity = 15, rarity = ItemRarity.UNCOMMON.name, weightKg = 0.3f, buyPrice = 40, sellPrice = 18, stock = 8, faction = "scientists"),
+            NpcShopEntity("shop_antitoxin", "Anti-Toxin Vial", "CONSUMABLE", "Neutralizes toxic buildup.", healHp = 10, reduceToxicity = 45, rarity = ItemRarity.COMMON.name, weightKg = 0.3f, buyPrice = 25, sellPrice = 10, stock = 8, faction = "scientists"),
+            NpcShopEntity("shop_plasma_scalpel", "Plasma Scalpel", "WEAPON", "Ranged energy blade.", damage = 22, rarity = ItemRarity.UNCOMMON.name, weightKg = 2.0f, buyPrice = 180, sellPrice = 80, stock = 3, faction = "raiders"),
+            NpcShopEntity("shop_hazard_kevlar", "Hazard Kevlar", "ARMOR", "Ballistic hazmat plating.", defense = 14, rarity = ItemRarity.RARE.name, weightKg = 5.0f, buyPrice = 220, sellPrice = 100, stock = 2, faction = "raiders"),
+            NpcShopEntity("shop_reflex_chip", "Reflex Chip", "NEURAL_CHIP", "Boosts crit reflex.", damage = 6, defense = 4, criticalBonus = 0.15f, rarity = ItemRarity.RARE.name, weightKg = 0.2f, buyPrice = 260, sellPrice = 120, stock = 2, faction = "mutants")
         )
         shopDao.insertAllShopItems(stock)
     }
@@ -503,8 +507,12 @@ data class ScrapResult(
         val shopItem = shopDao.findShopItem(itemId) ?: return null
         if (shopItem.stock <= 0) return null
         val profile = profileDao.getProfileDirect(1) ?: return null
-        if (profile.credits < shopItem.buyPrice) return null
-        profileDao.updateCredits(1, profile.credits - shopItem.buyPrice)
+        val standing = getFactionStanding(shopItem.faction)
+        // Higher standing => lower prices (down to 60%).
+        val factor = (1f - standing / 200f).coerceIn(0.6f, 1.4f)
+        val finalPrice = (shopItem.buyPrice * factor).toInt()
+        if (profile.credits < finalPrice) return null
+        profileDao.updateCredits(1, profile.credits - finalPrice)
         shopDao.updateStock(itemId, shopItem.stock - 1)
         inventoryDao.insertItem(
             InventoryItemEntity.fromDomainItem(
@@ -513,6 +521,7 @@ data class ScrapResult(
                 weightKg = shopItem.weightKg
             )
         )
+        adjustFactionRep(shopItem.faction, +1)
         return shopItem.itemId
     }
 
@@ -520,11 +529,37 @@ data class ScrapResult(
     suspend fun sellInventoryItem(itemId: String): Boolean {
         val item = inventoryDao.findItemDirect(itemId) ?: return false
         if (item.isEquipped) return false
-        val sellValue = item.creditValue
+        val standing = getFactionStanding("scientists")
+        // Higher standing => better sell price (up to 150%).
+        val factor = (0.5f + standing / 200f).coerceIn(0.5f, 1.5f)
+        val sellValue = (item.creditValue * factor).toInt()
         val profile = profileDao.getProfileDirect(1) ?: return false
         profileDao.updateCredits(1, profile.credits + sellValue)
         inventoryDao.deleteItemById(itemId)
+        adjustFactionRep("scientists", +1)
         return true
+    }
+
+    // region Faction Reputation
+
+    suspend fun getFactionStanding(faction: String): Int {
+        return factionRepDao.getFactionRep(faction)?.standing ?: 0
+    }
+
+    /** Adjust a faction's standing, clamped to [-100, 100]. Creates the row if missing. */
+    suspend fun adjustFactionRep(faction: String, delta: Int) {
+        val current = factionRepDao.getFactionRep(faction)?.standing ?: 0
+        val next = (current + delta).coerceIn(-100, 100)
+        factionRepDao.upsertFactionRep(FactionRepEntity(faction = faction, standing = next))
+    }
+
+    suspend fun seedFactionRepsIfEmpty() {
+        val known = listOf("raiders", "scientists", "mutants")
+        known.forEach { faction ->
+            if (factionRepDao.getFactionRep(faction) == null) {
+                factionRepDao.upsertFactionRep(FactionRepEntity(faction = faction, standing = 0))
+            }
+        }
     }
     // endregion
 }

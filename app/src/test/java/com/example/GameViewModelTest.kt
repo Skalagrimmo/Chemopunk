@@ -108,4 +108,24 @@ class GameViewModelTest {
         assertTrue(viewModel.uiState.value.pendingPerkChoices.isEmpty())
         assertFalse(viewModel.uiState.value.activeModal == ActiveModal.PERK_SELECT)
     }
+
+    @Test
+    fun testDialogueSystemBranching() {
+        viewModel.startDialogue("merchant_trader")
+        assertEquals(ActiveModal.DIALOGUE, viewModel.uiState.value.activeModal)
+        assertEquals("greet", viewModel.uiState.value.dialogueNodeId)
+        assertNotNull(viewModel.uiState.value.dialogueTree)
+
+        // Selecting the "Browse goods" option should jump into the trade modal.
+        val root = viewModel.uiState.value.dialogueTree!!
+        val browse = root.node("greet")!!.options.first { it.action == com.example.data.DialogueAction.OPEN_TRADE }
+        viewModel.selectDialogueOption(browse)
+        assertEquals(ActiveModal.TRADE, viewModel.uiState.value.activeModal)
+
+        // Re-open dialogue and pick "Leave" to close it.
+        viewModel.startDialogue("merchant_trader")
+        val leave = root.node("greet")!!.options.first { it.action == com.example.data.DialogueAction.CLOSE }
+        viewModel.selectDialogueOption(leave)
+        assertEquals(ActiveModal.NONE, viewModel.uiState.value.activeModal)
+    }
 }

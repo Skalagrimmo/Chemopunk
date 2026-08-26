@@ -171,7 +171,8 @@ data class NpcShopEntity(
     val buyPrice: Int,   // price the player pays to acquire
     val sellPrice: Int,  // price the player receives when selling
     val stock: Int = 5,
-    val merchantId: String = "roving_trader"
+    val merchantId: String = "roving_trader",
+    val faction: String = "scientists" // which faction operates this vendor stall
 ) {
     fun toDomainItem(): com.example.data.Item {
         val itemType = try {
@@ -192,4 +193,10 @@ data class NpcShopEntity(
         )
     }
 }
+
+@Entity(tableName = "faction_rep")
+data class FactionRepEntity(
+    @PrimaryKey val faction: String,
+    val standing: Int = 0 // -100 (hostile) .. +100 (allied)
+)
 

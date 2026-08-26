@@ -59,6 +59,7 @@ import com.example.ui.components.SkillsModal
 import com.example.ui.components.PerkSelectModal
 import com.example.ui.components.TradeModal
 import com.example.ui.components.SynthesisModal
+import com.example.ui.components.DialogueModal
 import com.example.ui.components.DayNightIndicator
 import com.example.ui.components.MinimapOverlay
 import com.example.ui.components.RadialQuickActionMenu
@@ -124,6 +125,7 @@ fun GameScreen(viewModel: GameViewModel) {
                     onOpenSkills = { viewModel.openSkillsModal() },
                     onOpenSynthesis = { viewModel.openSynthesisModal() },
                     zoneName = uiState.currentZoneId.replaceFirstChar { if (it.isLowerCase()) it.uppercase() else it },
+                    factionReps = uiState.factionReps,
                     onOpenStoryNotes = { viewModel.setViewMode(ViewMode.STORY_DIALOGUE) },
                     onOpenMarkdownEditor = { viewModel.setViewMode(ViewMode.MARKDOWN_EDITOR) },
                     onTogglePalette = { viewModel.togglePalette() },
@@ -387,6 +389,8 @@ fun GameScreen(viewModel: GameViewModel) {
                         shopItems = uiState.shopItems,
                         ownedItems = uiState.roomInventory,
                         playerCredits = uiState.characterProfile?.credits ?: uiState.player.credits,
+                    factionReps = uiState.factionReps,
+                    companionCount = uiState.companions.size,
                         onBuy = { itemId -> viewModel.buyShopItem(itemId) },
                         onSell = { itemId -> viewModel.sellInventoryItem(itemId) },
                         onClose = { viewModel.closeModal() }
@@ -401,6 +405,17 @@ fun GameScreen(viewModel: GameViewModel) {
                         onSynthesize = { chem, bio -> viewModel.synthesizeChem(chem, bio) },
                         onClose = { viewModel.closeModal() }
                     )
+                }
+                ActiveModal.DIALOGUE -> {
+                    val tree = uiState.dialogueTree
+                    if (tree != null) {
+                        DialogueModal(
+                            tree = tree,
+                            currentNodeId = uiState.dialogueNodeId,
+                            onSelect = { opt -> viewModel.selectDialogueOption(opt) },
+                            onClose = { viewModel.closeModal() }
+                        )
+                    }
                 }
                 else -> {}
             }

@@ -137,3 +137,22 @@ interface ShopDao {
     @Query("DELETE FROM shop_items")
     suspend fun clearAllShopItems()
 }
+
+@Dao
+interface FactionRepDao {
+
+    @Query("SELECT * FROM faction_rep ORDER BY faction ASC")
+    fun observeFactionReps(): Flow<List<FactionRepEntity>>
+
+    @Query("SELECT * FROM faction_rep WHERE faction = :faction LIMIT 1")
+    suspend fun getFactionRep(faction: String): FactionRepEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFactionRep(entity: FactionRepEntity)
+
+    @Query("UPDATE faction_rep SET standing = standing + :delta WHERE faction = :faction")
+    suspend fun adjustFactionRep(faction: String, delta: Int)
+
+    @Query("DELETE FROM faction_rep")
+    suspend fun clearAllFactionReps()
+}

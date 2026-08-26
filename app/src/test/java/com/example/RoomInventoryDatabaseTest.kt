@@ -41,7 +41,7 @@ class RoomInventoryDatabaseTest {
             .build()
         inventoryDao = db.inventoryDao()
         profileDao = db.characterProfileDao()
-        repository = InventoryRepository(inventoryDao, profileDao)
+        repository = InventoryRepository(inventoryDao, profileDao, perkDao = db.perkDao(), shopDao = db.shopDao(), factionRepDao = db.factionRepDao())
     }
 
     @After

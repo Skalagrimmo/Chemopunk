@@ -139,7 +139,10 @@ class StoryViewModel(
 
     private val inventoryRepository = InventoryRepository(
         inventoryDao = gameDatabase.inventoryDao(),
-        profileDao = gameDatabase.characterProfileDao()
+        profileDao = gameDatabase.characterProfileDao(),
+        perkDao = gameDatabase.perkDao(),
+        shopDao = gameDatabase.shopDao(),
+        factionRepDao = gameDatabase.factionRepDao()
     )
 
     init {
