@@ -37,16 +37,24 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
+        shell: bash
         run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build-output.log
 
       - name: Run unit tests
+        shell: bash
         run: ./gradlew testDebugUnitTest --no-daemon --stacktrace 2>&1 | tee test-output.log
+
+      - name: List built APKs
+        run: find "$GITHUB_WORKSPACE" -name '*.apk' -type f | tee apk-paths.log
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: chemopunk-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/**/*.apk
+            **/build/outputs/**/*.apk
+          if-no-files-found: error
 
       - name: Commit Gradle wrapper files (self-heal)
         if: github.event_name != 'pull_request'
@@ -78,6 +86,7 @@ jobs:
             }
             const buildTail = tailOf('build-output.log', 120);
             const testTail = tailOf('test-output.log', 60);
+            const apkTail = tailOf('apk-paths.log', 40);
             let report = '';
             report += '#### Build log tail\n\n';
             report += '<details><summary>build-output.log</summary>\n\n';
@@ -86,6 +95,10 @@ jobs:
               report += '#### Test log tail\n\n';
               report += '<details><summary>test-output.log</summary>\n\n';
               report += '```\n' + testTail + '\n```\n\n</details>\n';
+            }
+            if (!apkTail.startsWith('(apk-paths.log')) {
+              report += '#### APKs found on the runner\n\n';
+              report += '```\n' + apkTail + '\n```\n\n';
             }
             await github.rest.issues.createComment({
               owner: context.repo.owner,
