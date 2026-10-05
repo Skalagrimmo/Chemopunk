@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
   issues: write
 
@@ -19,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -74,7 +75,7 @@ jobs:
             for (const job of jobs.data.jobs) {
               for (const step of job.steps || []) {
                 if (step.conclusion === 'failure') {
-                  report += `- failed step: **' + step.name + '** (job: ' + job.name + ')\n';
+                  report += `- failed step: **${step.name}** (job: ${job.name})\n`;
                   try {
                     const logs = await github.request('GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs', {
                       owner: context.repo.owner,
@@ -82,10 +83,11 @@ jobs:
                       job_id: job.id
                     });
                     const text = String(logs.data || '');
-                    const tail = text.split('\n').slice(-100).join('\n');
-                    report += '<details><summary>log tail</summary>\n\n```\n' + tail + '\n```\n\n</details>\n';
+                    const lines = text.split('\n');
+                    const tail = lines.slice(-150).join('\n');
+                    report += `<details><summary>log tail</summary>\n\n\`\`\`\n${tail}\n\`\`\`\n\n</details>\n`;
                   } catch (e) {
-                    report += '(could not fetch logs: ' + e + ')\n';
+                    report += `(could not fetch logs: ${e})\n`;
                   }
                 }
               }
@@ -95,5 +97,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: 1,
-              body: '🤖 **CI failed** on commit `' + context.sha.slice(0, 7) + '` — [run](' + context.payload.repository.html_url + '/actions/runs/' + context.runId + ')\n\n' + report
+              body: `🤖 **CI failed** on commit \`${context.sha.slice(0, 7)}\` — [run](${context.payload.repository.html_url}/actions/runs/${context.runId})\n\n${report}`
             });
