@@ -1,4 +1,4 @@
-ackage com.example
+package com.example
 
 import com.example.engine.CellColorComputer
 import com.example.engine.IntensityFieldGenerator
@@ -414,4 +414,3 @@ class SubPixelRenderingTest {
         assertTrue("dying enemies should glow", lowHp.glow > fullHp.glow)
     }
 }
-
