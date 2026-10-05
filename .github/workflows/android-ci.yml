@@ -84,10 +84,31 @@ jobs:
                 return '(' + file + ' not readable: ' + e + ')';
               }
             }
+            function errorLinesOf(file, n) {
+              try {
+                const text = fs.readFileSync(file, 'utf8');
+                const lines = text.split('\n').filter(function (l) {
+                  return l.startsWith('e: ') || l.indexOf('error:') !== -1;
+                });
+                return lines.slice(-n).join('\n');
+              } catch (e) {
+                return '(' + file + ' not readable: ' + e + ')';
+              }
+            }
             const buildTail = tailOf('build-output.log', 120);
             const testTail = tailOf('test-output.log', 60);
             const apkTail = tailOf('apk-paths.log', 40);
+            const buildErrors = errorLinesOf('build-output.log', 60);
+            const testErrors = errorLinesOf('test-output.log', 60);
             let report = '';
+            if (!buildErrors.startsWith('(build-output.log')) {
+              report += '#### Compile/build errors (filtered)\n\n';
+              report += '```\n' + buildErrors + '\n```\n\n';
+            }
+            if (!testErrors.startsWith('(test-output.log') && testErrors !== buildErrors) {
+              report += '#### Test errors (filtered)\n\n';
+              report += '```\n' + testErrors + '\n```\n\n';
+            }
             report += '#### Build log tail\n\n';
             report += '<details><summary>build-output.log</summary>\n\n';
             report += '```\n' + buildTail + '\n```\n\n</details>\n';
