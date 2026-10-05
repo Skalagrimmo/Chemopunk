@@ -132,7 +132,7 @@ class DynamicLightingEngine {
 
     companion object {
         const val AMBIENT_DARK_INTENSITY = 0.08f   // Completely dark unvisited void
-        const val FOW_MEMORY_INTENSITY = 0.22f     // Explored fog-of-war memory
+        const val FOW_MEMORY_INTENSITY = 0.50f     // Explored fog-of-war memory (kept readable)
         const val SHADOW_AMBIENT_FLOOR = 0.18f     // Base ambient level in shadow
         const val RAY_STEP_SIZE = 0.25f            // Grid step size for 3D shadow raymarching
     }
@@ -260,9 +260,9 @@ class DynamicLightingEngine {
             return if (isDiscovered) {
                 TileLighting(
                     totalIntensity = FOW_MEMORY_INTENSITY * aoFactor,
-                    colorR = 40,
-                    colorG = 55,
-                    colorB = 65,
+                    colorR = 110,
+                    colorG = 135,
+                    colorB = 160,
                     inDirectLight = false,
                     isFOWHidden = false,
                     shadowFactor = 0.3f,

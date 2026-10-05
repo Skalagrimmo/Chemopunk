@@ -172,7 +172,7 @@ object AsciiShaders {
                 float dist = distToPlayer;
                 if (dist > 0.05 && dist <= u_FlashlightParams.x) {
                     vec2 dirNorm = toFrag / dist;
-                    vec2 flashDir = vec2(cos(u_FlashlightPos.z), sin(u_FlashlightPos.z));
+                    vec2 flashDir = vec2(sin(u_FlashlightPos.z), -cos(u_FlashlightPos.z));
                     float dotVal = dot(dirNorm, flashDir);
                     if (dotVal > u_FlashlightParams.z) {
                         float spotFactor = clamp((dotVal - u_FlashlightParams.z) / max(u_FlashlightParams.y - u_FlashlightParams.z, 0.0001), 0.0, 1.0);
@@ -216,7 +216,7 @@ object AsciiShaders {
             // 5. Adaptive Coordinate Darkness & Subterranean Shadow Falloff
             // As coordinates move further from player and into dungeon depths, decay ambient floor light
             float spatialDarkness = clamp((distToPlayer - 3.2) / 8.5, 0.0, 1.0);
-            float ambientFloor = mix(0.18, 0.02, spatialDarkness * clamp(u_AmbientDarkness, 0.0, 1.0));
+            float ambientFloor = mix(0.24, 0.08, spatialDarkness * clamp(u_AmbientDarkness, 0.0, 1.0));
             lightIntensity = max(lightIntensity, ambientFloor);
 
             // Spatial Bayer Dithering
@@ -244,9 +244,14 @@ object AsciiShaders {
             vec3 ambientShadowTint = vec3(0.012, 0.016, 0.026);
             float shadowCoeff = clamp(lightIntensity / 0.35, 0.0, 1.0);
 
+            // Normalize photon color into a tint so dim ambient hues shade the scene
+            // instead of multiplying glyph colors down to black.
+            float maxLightChan = max(lightRgb.r, max(lightRgb.g, lightRgb.b));
+            vec3 lightTint = lightRgb / max(maxLightChan, 0.55);
+
             // Apply dynamic lighting and photon color to foreground & background
-            vec3 litFg = mix(ambientShadowTint * 1.8, v_FgColor.rgb * lightRgb * lightIntensity, shadowCoeff * 0.85 + 0.15);
-            vec3 litBg = mix(ambientShadowTint, v_BgColor.rgb * lightRgb * (lightIntensity * 0.85), shadowCoeff);
+            vec3 litFg = mix(ambientShadowTint * 1.8, v_FgColor.rgb * lightTint * lightIntensity, shadowCoeff * 0.85 + 0.15);
+            vec3 litBg = mix(ambientShadowTint, v_BgColor.rgb * lightTint * (lightIntensity * 0.85), shadowCoeff);
 
             // Composite character glyph over background tile
             vec3 finalRgb = mix(litBg, litFg, glyphMask);

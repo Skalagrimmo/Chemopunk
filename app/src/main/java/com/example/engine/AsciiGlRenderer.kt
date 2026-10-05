@@ -541,6 +541,16 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
             }
         }
 
+        // Recompute CPU-side per-tile lighting, shadows & fog-of-war state for the vertex pipeline.
+        // Without this call the LightMapBuffer stays zero-initialized (isFOWHidden = true everywhere),
+        // which renders the whole world as near-invisible fog-of-war dots.
+        lightMapBuffer.computeLightMap(
+            mapGrid = mapGrid,
+            lightSources = activeLightsBuffer,
+            discoveredTiles = snap.discoveredTiles,
+            animTime = animTime
+        )
+
         // Update GPU Dynamic Light-Map Subsystem
         dynamicLightMapSystem.updateAndUpload(
             mapGrid = mapGrid,
@@ -1025,8 +1035,8 @@ class AsciiGlRenderer : GLSurfaceView.Renderer {
 
         // Directional Flashlight Cone Ray in Front of Player
         val rad = Math.toRadians(player.angleDegrees.toDouble())
-        val coneTargetX = player.x + cos(rad).toFloat() * 1.5f
-        val coneTargetY = player.y + sin(rad).toFloat() * 1.5f
+        val coneTargetX = player.x + sin(rad).toFloat() * 1.5f
+        val coneTargetY = player.y - cos(rad).toFloat() * 1.5f
         val (coneIsoX, coneIsoY) = characterBuffer.gridToIso(coneTargetX, coneTargetY, 0.2f, centerX, centerY, player.x, player.y, zoom)
 
         characterBuffer.pushCharCell(

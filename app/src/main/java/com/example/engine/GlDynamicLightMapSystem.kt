@@ -132,8 +132,8 @@ class GlDynamicLightMapSystem(
         // 2. Synthesize Player Flashlight & Aura Parameters
         val flicker = sin(animTime * 14.5f) * 0.04f + sin(animTime * 28.0f) * 0.02f
         val playerFacingRad = Math.toRadians(player.angleDegrees.toDouble()).toFloat()
-        val flashDirX = cos(playerFacingRad)
-        val flashDirY = sin(playerFacingRad)
+        val flashDirX = sin(playerFacingRad)
+        val flashDirY = -cos(playerFacingRad)
 
         val playerFlashlightRange = 9.0f
         val playerFlashlightIntensity = 1.45f + flicker
