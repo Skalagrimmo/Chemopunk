@@ -5,7 +5,7 @@
 #
 # Requires JAVA_HOME or `java` on PATH, and gradle/wrapper/gradle-wrapper.jar.
 # If the jar is missing, regenerate the wrapper once with a local Gradle
-# installation (`gradle wrapper --gradle-version 9.6.0`) or open the project
+# installation (`gradle wrapper --gradle-version 9.3.1`) or open the project
 # in Android Studio, which restores the wrapper automatically. See README.md.
 #
 
@@ -26,7 +26,7 @@ fi
 if [ ! -f "$WRAPPER_JAR" ]; then
   echo "ERROR: gradle-wrapper.jar not found at $WRAPPER_JAR" >&2
   echo "Regenerate the wrapper once with a local Gradle installation:" >&2
-  echo "    gradle wrapper --gradle-version 9.6.0" >&2
+  echo "    gradle wrapper --gradle-version 9.3.1" >&2
   exit 1
 fi
 

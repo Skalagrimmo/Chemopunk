@@ -1,7 +1,7 @@
 @rem
 @rem Gradle startup script for Windows (minimal wrapper) for Chemopunk RPG.
 @rem Requires JAVA_HOME or java.exe on PATH and gradle\wrapper\gradle-wrapper.jar.
-@rem If the jar is missing, run: gradle wrapper --gradle-version 9.6.0
+@rem If the jar is missing, run: gradle wrapper --gradle-version 9.3.1
 @rem
 
 @echo off
@@ -30,7 +30,7 @@ goto fail
 if not exist "%WRAPPER_JAR%" (
     echo ERROR: gradle-wrapper.jar not found.
     echo Regenerate the wrapper once with a local Gradle installation:
-    echo     gradle wrapper --gradle-version 9.6.0
+    echo     gradle wrapper --gradle-version 9.3.1
     goto fail
 )
 set "CLASSPATH=%WRAPPER_JAR%"

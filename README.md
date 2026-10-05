@@ -9,7 +9,7 @@ ASCII-RPG у стилі Fallout 1/2: ізометрична 2.5D-графіка 
 ## Tech stack
 
 - **Language:** Kotlin 2.2, UI on Jetpack Compose
-- **Build:** Gradle 9.6.0 (wrapper), AGP 9.1.1, KSP 2
+- **Build:** Gradle 9.3.1 (wrapper), AGP 9.1.1, KSP 2
 - **Persistence:** Room (inventory + story databases)
 - **Rendering:** custom OpenGL ASCII engine (isometric, dynamic lighting, sub-pixel glyph atlas, CRT shaders)
 - **Testing:** JUnit 4 + Robolectric + Roborazzi (19 unit test classes)
@@ -19,22 +19,22 @@ ASCII-RPG у стилі Fallout 1/2: ізометрична 2.5D-графіка 
 
 - JDK 17+ (recommended: JDK 21)
 - Android SDK with platform **android-36** (compileSdk 36.1, minSdk 24, targetSdk 36)
-- Android Studio (Meerkat/Narwhal or newer recommended) or a local Gradle to bootstrap the wrapper once
+- Android Studio (recent version recommended) or a local Gradle to bootstrap the wrapper once
 
 ## Getting started
 
 ### Android Studio
 
 1. **File → Open…** and select this repository's root folder.
-2. Android Studio downloads the Gradle 9.6.0 distribution from `gradle/wrapper/gradle-wrapper.properties` and the required SDK components automatically.
+2. Android Studio downloads the Gradle 9.3.1 distribution from `gradle/wrapper/gradle-wrapper.properties` and the required SDK components automatically.
 3. Run the `app` configuration on a device or emulator (minSdk 24 / Android 7.0+).
 
 ### Command line
 
-The Gradle wrapper scripts are committed, but the wrapper **jar** (`gradle/wrapper/gradle-wrapper.jar`) is not in the repository yet — the first CI run commits it automatically. If it is still missing locally, bootstrap once:
+The Gradle wrapper scripts are committed, but the wrapper **jar** (`gradle/wrapper/gradle-wrapper.jar`) is not in the repository yet — the first green CI run commits it automatically. If it is still missing locally, bootstrap once:
 
 ```bash
-gradle wrapper --gradle-version 9.6.0   # any local Gradle 8.14+ / 9.x works
+gradle wrapper --gradle-version 9.3.1   # any local Gradle 8.14+ / 9.x works
 ./gradlew assembleDebug
 ```
 
@@ -56,7 +56,7 @@ gradlew.bat assembleDebug
 
 ## CI
 
-`.github/workflows/android-ci.yml` builds the debug APK and runs the unit tests on every push/PR to `main`, uploads the APK as an artifact, and commits the generated Gradle wrapper (including `gradle-wrapper.jar`) back to the branch if it was missing.
+`.github/workflows/android-ci.yml` builds the debug APK and runs the unit tests on every push/PR to `main`, uploads the APK as an artifact, and commits the generated Gradle wrapper (including `gradle-wrapper.jar`) back to the branch if it was missing. On failure, the workflow posts the build/test log tail as a comment on tracking issue #1.
 
 ## Secrets & signing
 
