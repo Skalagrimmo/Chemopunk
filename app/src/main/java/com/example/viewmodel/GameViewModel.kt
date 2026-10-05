@@ -1897,7 +1897,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (_uiState.value.activeModal == ActiveModal.COMBAT) return
         val enemies = _uiState.value.activeEnemies
         val nearEnemy = enemies.filter { enemy ->
-            enemy.isAlive && !enemy.isAlly && Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) < 4.0
+            enemy.isAlive && !enemy.isAlly && Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) < 2.2
         }.minByOrNull { enemy -> Math.hypot((enemy.x - px).toDouble(), (enemy.y - py).toDouble()) }
 
         if (nearEnemy != null) {
@@ -2191,12 +2191,48 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun fleeCombat() {
-        val logs = _uiState.value.combatLogs + CombatLogEntry("Tactical retreat: Disengaged hostile combat encounter.")
-        spawnFloatingText("DISENGAGED", _uiState.value.player.x, _uiState.value.player.y, 0xFFFFD700)
+        val state = _uiState.value
+        val logs = state.combatLogs + CombatLogEntry("Tactical retreat: Disengaged hostile combat encounter.")
+        spawnFloatingText("DISENGAGED", state.player.x, state.player.y, 0xFFFFD700)
+
+        // Physical retreat: step the player away from the nearest hostile so the
+        // encounter does not instantly re-trigger on the next movement input.
+        val player = state.player
+        val nearestHostile = state.activeEnemies
+            .filter { it.isAlive && !it.isAlly }
+            .minByOrNull { Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) }
+
+        var updatedPlayer = player
+        if (nearestHostile != null) {
+            val grid = state.mapGrid
+            val dx = (player.x - nearestHostile.x).toDouble()
+            val dy = (player.y - nearestHostile.y).toDouble()
+            val len = Math.hypot(dx, dy)
+            if (len > 0.01) {
+                val dirX = (dx / len).toFloat()
+                val dirY = (dy / len).toFloat()
+                // Try a 2-tile retreat, then 1 tile, keeping the player inside the grid
+                for (step in intArrayOf(2, 1)) {
+                    val nx = (player.x + dirX * step).coerceIn(0.5f, (grid.maxOfOrNull { it.size } ?: 1) - 0.5f)
+                    val ny = (player.y + dirY * step).coerceIn(0.5f, (grid.size - 0.5f).coerceAtLeast(0.5f))
+                    val tile = grid.getOrNull(ny.toInt())?.getOrNull(nx.toInt())
+                    if (tile != null && tile != TileType.WALL) {
+                        updatedPlayer = player.copy(x = nx, y = ny)
+                        break
+                    }
+                }
+            }
+        }
+
+        val refreshedQueue = buildTurnCombatQueue(updatedPlayer, state.activeEnemies.filter { it.isAlive && !it.isAlly })
+
         _uiState.update {
             it.copy(
                 activeModal = ActiveModal.NONE,
                 activeCombatEnemy = null,
+                player = updatedPlayer,
+                discoveredTiles = it.discoveredTiles + computeFov(updatedPlayer.x.toInt(), updatedPlayer.y.toInt()),
+                turnQueueState = refreshedQueue,
                 combatLogs = logs
             )
         }
@@ -2214,7 +2250,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val all = _uiState.value.activeEnemies.filter { it.isAlive }
         val hostiles = all.filter { !it.isAlly }
         val allies = all.filter { it.isAlly }
-        val near = hostiles.filter { Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) < 4.0 }
+        val near = hostiles.filter { Math.hypot((it.x - player.x).toDouble(), (it.y - player.y).toDouble()) < 3.0 }
         val engaged = if (near.isNotEmpty()) near else hostiles
         if (engaged.isEmpty()) return
         val participants = (engaged + allies).distinctBy { it.id }

@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1551,13 +1552,16 @@ fun CombatModal(
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.98f)
+                .fillMaxHeight(0.96f)
                 .border(2.dp, if (isPlayerTurn) ImmersiveTeal else ToxicRed, RoundedCornerShape(20.dp))
                 .testTag("combat_modal_root"),
             colors = CardDefaults.cardColors(containerColor = ImmersiveSurface),
             shape = RoundedCornerShape(20.dp)
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Header with Encounter Title and Close
@@ -1660,7 +1664,7 @@ fun CombatModal(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 // Target Enemy Visual Card
                 Card(
@@ -1683,7 +1687,7 @@ fun CombatModal(
                                 color = ToxicRed,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 32.sp
+                                fontSize = 22.sp
                             )
 
                             Column {
@@ -1814,7 +1818,7 @@ fun CombatModal(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Tactical Action Controls Grid
                 Column(

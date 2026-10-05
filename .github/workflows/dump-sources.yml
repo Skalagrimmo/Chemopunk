@@ -1,8 +1,6 @@
 name: dump-sources
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -14,17 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Dump requested sources to issue #1
+      - name: Dump requested sources to issue #1 (manual only)
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const files = [
-              'app/src/main/java/com/example/viewmodel/GameViewModel.kt',
-              'app/src/main/java/com/example/ui/components/Modals.kt'
-            ];
-            const CHUNK = 55000;
-            const fence = '````';
+            const files = [];
             const post = async (body) => {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -33,14 +26,4 @@ jobs:
                 body: body
               });
             };
-            for (const f of files) {
-              if (!fs.existsSync(f)) { await post('### SRC-DUMP v3 `' + f + '` MISSING'); continue; }
-              const content = fs.readFileSync(f, 'utf8');
-              const n = Math.ceil(content.length / CHUNK);
-              for (let i = 0; i < n; i++) {
-                const s = i * CHUNK;
-                const e = Math.min(s + CHUNK, content.length);
-                const body = '### SRC-DUMP v3 `' + f + '` part ' + (i + 1) + '/' + n + ' chars ' + s + '-' + e + ' of ' + content.length + '\n\n' + fence + '\n' + content.slice(s, e) + '\n' + fence;
-                await post(body);
-              }
-            }
+            await post('dump-sources is disabled (manual workflow_dispatch only, no-op).');
