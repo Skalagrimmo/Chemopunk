@@ -23,16 +23,21 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  // Keystores are deliberately NOT committed to the repository (see .gitignore).
+  // Signing is resolved at configuration time from environment variables so that
+  // a fresh clone or a CI runner can always configure and build the project.
+  val releaseKeystoreFile = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+  val debugKeystoreFile = file("${rootDir}/debug.keystore")
+
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
+      storeFile = releaseKeystoreFile
       storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
+      storeFile = debugKeystoreFile
       storePassword = "android"
       keyAlias = "androiddebugkey"
       keyPassword = "android"
@@ -44,9 +49,24 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      if (releaseKeystoreFile.exists() &&
+        !System.getenv("STORE_PASSWORD").isNullOrEmpty() &&
+        !System.getenv("KEY_PASSWORD").isNullOrEmpty()
+      ) {
+        // Real upload key: set KEYSTORE_PATH, STORE_PASSWORD and KEY_PASSWORD.
+        signingConfig = signingConfigs.getByName("release")
+      } else {
+        // Fall back to the standard debug key so the project always builds.
+        signingConfig = signingConfigs.getByName("debug")
+      }
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      // Use the shared debug.keystore when it exists; otherwise AGP falls back
+      // to its default auto-generated debug keystore (~/.android/debug.keystore).
+      if (debugKeystoreFile.exists()) {
+        signingConfig = signingConfigs.getByName("debugConfig")
+      }
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
