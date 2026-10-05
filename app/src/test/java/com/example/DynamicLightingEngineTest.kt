@@ -66,7 +66,7 @@ class DynamicLightingEngineTest {
 
         assertFalse(memoryLighting.inDirectLight)
         assertFalse("Discovered tile should be visible as memory in shadow", memoryLighting.isFOWHidden)
-        assertEquals(0.22f, memoryLighting.totalIntensity, 0.01f)
+        assertEquals("Fog-of-war memory intensity must match the engine design constant", DynamicLightingEngine.FOW_MEMORY_INTENSITY, memoryLighting.totalIntensity, 0.01f)
 
         // Tile that has never been visited / discovered
         val darkLighting = lightingEngine.calculateLighting(
@@ -133,7 +133,7 @@ class DynamicLightingEngineTest {
             gridX = 2.5f,
             gridY = 2.5f,
             elevation = 0f,
-            normal = SurfaceNormals.FLOOR,
+            normal = SurfaceNormals.TOP,
             mapGrid = grid,
             lightSources = listOf(light),
             discoveredTiles = setOf(Pair(2, 2), Pair(5, 2)),
@@ -145,7 +145,7 @@ class DynamicLightingEngineTest {
             gridX = 5.5f,
             gridY = 2.5f,
             elevation = 0f,
-            normal = SurfaceNormals.FLOOR,
+            normal = SurfaceNormals.TOP,
             mapGrid = grid,
             lightSources = listOf(light),
             discoveredTiles = setOf(Pair(2, 2), Pair(5, 2)),
