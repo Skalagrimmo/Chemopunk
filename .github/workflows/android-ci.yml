@@ -95,11 +95,27 @@ jobs:
                 return '(' + file + ' not readable: ' + e + ')';
               }
             }
+            function failureLinesOf(file, n) {
+              try {
+                const text = fs.readFileSync(file, 'utf8');
+                const lines = text.split('\n').filter(function (l) {
+                  return l.indexOf('FAILED') !== -1
+                    || l.indexOf('What went wrong') !== -1
+                    || l.indexOf('Caused by') !== -1
+                    || l.indexOf('tests completed') !== -1
+                    || l.indexOf('Execution failed for task') !== -1;
+                });
+                return lines.slice(-n).join('\n');
+              } catch (e) {
+                return '(' + file + ' not readable: ' + e + ')';
+              }
+            }
             const buildTail = tailOf('build-output.log', 120);
-            const testTail = tailOf('test-output.log', 60);
+            const testTail = tailOf('test-output.log', 200);
             const apkTail = tailOf('apk-paths.log', 40);
             const buildErrors = errorLinesOf('build-output.log', 150);
             const testErrors = errorLinesOf('test-output.log', 150);
+            const testFailures = failureLinesOf('test-output.log', 100);
             let report = '';
             if (!buildErrors.startsWith('(build-output.log')) {
               report += '#### Compile/build errors (filtered)\n\n';
@@ -108,6 +124,10 @@ jobs:
             if (!testErrors.startsWith('(test-output.log') && testErrors !== buildErrors) {
               report += '#### Test errors (filtered)\n\n';
               report += '```\n' + testErrors + '\n```\n\n';
+            }
+            if (!testFailures.startsWith('(test-output.log') && testFailures !== '') {
+              report += '#### Test failures (filtered)\n\n';
+              report += '```\n' + testFailures + '\n```\n\n';
             }
             report += '#### Build log tail\n\n';
             report += '<details><summary>build-output.log</summary>\n\n';
