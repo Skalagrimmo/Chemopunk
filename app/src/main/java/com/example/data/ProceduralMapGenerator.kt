@@ -80,10 +80,11 @@ object ProceduralMapGenerator {
 
     private data class Room(
         val x: Int, val y: Int,
-        val w: Int, val h: Int,
+        val w: Int, val h: Int
+    ) {
         val cx: Int get() = x + w / 2
         val cy: Int get() = y + h / 2
-    )
+    }
 
     private fun generateRooms(
         mapWidth: Int, mapHeight: Int,
@@ -196,7 +197,8 @@ object ProceduralMapGenerator {
         rng: Random
     ) {
         var placed = 0
-        for (i in 0 until rooms.size - 1 && placed < count) {
+        for (i in 0 until rooms.size - 1) {
+            if (placed >= count) break
             val a = rooms[i]
             val b = rooms[i + 1]
             val midX = (a.cx + b.cx) / 2

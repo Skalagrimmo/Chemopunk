@@ -497,7 +497,7 @@ data class ScrapResult(
             NpcShopEntity("shop_antitoxin", "Anti-Toxin Vial", "CONSUMABLE", "Neutralizes toxic buildup.", healHp = 10, reduceToxicity = 45, rarity = ItemRarity.COMMON.name, weightKg = 0.3f, buyPrice = 25, sellPrice = 10, stock = 8, faction = "scientists"),
             NpcShopEntity("shop_plasma_scalpel", "Plasma Scalpel", "WEAPON", "Ranged energy blade.", damage = 22, rarity = ItemRarity.UNCOMMON.name, weightKg = 2.0f, buyPrice = 180, sellPrice = 80, stock = 3, faction = "raiders"),
             NpcShopEntity("shop_hazard_kevlar", "Hazard Kevlar", "ARMOR", "Ballistic hazmat plating.", defense = 14, rarity = ItemRarity.RARE.name, weightKg = 5.0f, buyPrice = 220, sellPrice = 100, stock = 2, faction = "raiders"),
-            NpcShopEntity("shop_reflex_chip", "Reflex Chip", "NEURAL_CHIP", "Boosts crit reflex.", damage = 6, defense = 4, criticalBonus = 0.15f, rarity = ItemRarity.RARE.name, weightKg = 0.2f, buyPrice = 260, sellPrice = 120, stock = 2, faction = "mutants")
+            NpcShopEntity("shop_reflex_chip", "Reflex Chip", "NEURAL_CHIP", "Boosts crit reflex.", damage = 6, defense = 4, rarity = ItemRarity.RARE.name, weightKg = 0.2f, buyPrice = 260, sellPrice = 120, stock = 2, faction = "mutants")
         )
         shopDao.insertAllShopItems(stock)
     }

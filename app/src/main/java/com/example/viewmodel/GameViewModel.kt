@@ -27,6 +27,7 @@ import com.example.data.StoryNode
 import com.example.data.TileType
 import com.example.data.TurnCombatQueueState
 import com.example.data.TurnPhase
+import com.example.data.Zone
 import com.example.data.room.BranchingChoiceEntity
 import com.example.data.room.CharacterProfileEntity
 import com.example.data.room.CraftingMaterials
@@ -52,6 +53,7 @@ import com.example.data.narrative.StoryAssetDescriptor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.cos
@@ -90,7 +92,7 @@ data class GameUiState(
     val factionReps: Map<String, Int> = emptyMap(), // faction id -> standing (-100..100)
     val dialogueTree: com.example.data.DialogueTree? = null,
     val dialogueNodeId: String = "",
-    val companions: List<com.example.data.Companion> = emptyList()
+    val companions: List<com.example.data.Companion> = emptyList(),
     val screenShakeIntensity: Float = 0f,
     val screenShakeStartTime: Long = 0L,
     val currentViewMode: ViewMode = ViewMode.ISOMETRIC_WORLD,
@@ -221,6 +223,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     InteractiveObjectType.LOCKER -> "Sealed supply locker. Might contain useful gear."
                     InteractiveObjectType.SWITCH -> "Power relay switch. Activating it floods the area with light."
                     InteractiveObjectType.BEACON -> "Emergency rescue beacon. Signals extraction forces."
+                    InteractiveObjectType.MERCHANT -> "Roving black-market vendor. Buy gear, sell salvage."
+                    InteractiveObjectType.ZONE_EXIT -> "Zone transit gate. Travel between sectors."
                 }
             )
         }
@@ -1057,7 +1061,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     turnQueueState = initialQueue,
                     mapGrid = gridWithObjects,
                     lightSources = initialLights,
-                    rawMarkdownContent = data.rawMarkdownContent,
+                    rawMarkdownContent = data.rawMarkdownText,
                     discoveredTiles = initialDiscovered,
                     combatLogs = initialLogs,
                     interactiveObjects = interactiveObjectsMap,
@@ -2037,7 +2041,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val combatEnded = remainingEnemies.isEmpty()
             val nextTarget = remainingEnemies.firstOrNull()
             val nextModal = when {
-                it.pendingPerkChoices.isNotEmpty() -> ActiveModal.PERK_SELECT
+                _uiState.value.pendingPerkChoices.isNotEmpty() -> ActiveModal.PERK_SELECT
                 combatEnded -> ActiveModal.NONE
                 else -> ActiveModal.COMBAT
             }

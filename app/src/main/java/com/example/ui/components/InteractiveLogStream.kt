@@ -357,14 +357,14 @@ fun InteractiveLogItem(
                         modifier = Modifier
                             .size(20.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(iconTint.copy(alpha = 0.2f))
-                            .border(0.6.dp, iconTint, RoundedCornerShape(4.dp)),
+                            .background(iconTintBase.copy(alpha = 0.2f))
+                            .border(0.6.dp, iconTintBase, RoundedCornerShape(4.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = icon,
                             contentDescription = entry.category.label,
-                            tint = iconTint,
+                            tint = iconTintBase,
                             modifier = Modifier.size(12.dp)
                         )
                     }

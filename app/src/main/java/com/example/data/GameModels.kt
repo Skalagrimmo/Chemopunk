@@ -57,7 +57,9 @@ data class InteractiveObject(
     var isUsed: Boolean = false,
     val description: String = "",
     // For SWITCH: the light source id it toggles (or null to simply brighten the area)
-    val linkedLightId: String? = null
+    val linkedLightId: String? = null,
+    // Locked objects require the Lockpicking skill to interact
+    val locked: Boolean = false
 )
 
 /** Side-effect triggered when a dialogue option is selected. */

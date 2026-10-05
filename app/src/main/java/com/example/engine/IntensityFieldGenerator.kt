@@ -56,8 +56,8 @@ object IntensityFieldGenerator {
      * SDF for an axis-aligned rectangle defined by min/max corners.
      */
     fun sdfRect(px: Float, py: Float, minX: Float, minY: Float, maxX: Float, maxY: Float): Float {
-        val dx = max(minX - px, 0f, px - maxX)
-        val dy = max(minY - py, 0f, py - maxY)
+        val dx = maxOf(minX - px, 0f, px - maxX)
+        val dy = maxOf(minY - py, 0f, py - maxY)
         val outside = sqrt(dx * dx + dy * dy)
         val inside = min(maxX - px, px - minX).coerceAtLeast(0f)
         val dyInside = min(maxY - py, py - minY).coerceAtLeast(0f)

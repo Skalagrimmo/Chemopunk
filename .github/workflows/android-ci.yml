@@ -98,8 +98,8 @@ jobs:
             const buildTail = tailOf('build-output.log', 120);
             const testTail = tailOf('test-output.log', 60);
             const apkTail = tailOf('apk-paths.log', 40);
-            const buildErrors = errorLinesOf('build-output.log', 60);
-            const testErrors = errorLinesOf('test-output.log', 60);
+            const buildErrors = errorLinesOf('build-output.log', 150);
+            const testErrors = errorLinesOf('test-output.log', 150);
             let report = '';
             if (!buildErrors.startsWith('(build-output.log')) {
               report += '#### Compile/build errors (filtered)\n\n';
