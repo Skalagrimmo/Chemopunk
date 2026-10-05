@@ -1,4 +1,4 @@
-package com.example
+ackage com.example
 
 import com.example.engine.CellColorComputer
 import com.example.engine.IntensityFieldGenerator
@@ -172,8 +172,14 @@ class SubPixelRenderingTest {
 
     @Test
     fun testSdfToIntensity_fullInside() {
-        val intensity = IntensityFieldGenerator.sdfToIntensity(-0.5f, 0.1f)
+        // sdfToIntensity maps the STROKE band around the SDF zero-contour:
+        // a point inside the band (|sdf| < radius) is fully covered -> 1.
+        val intensity = IntensityFieldGenerator.sdfToIntensity(-0.05f, 0.1f)
         assertEquals(1f, intensity, 0.05f)
+        // Points far from the contour on either side (deep inside the shape or
+        // fully outside it) are NOT part of the stroke band -> 0.
+        assertEquals(0f, IntensityFieldGenerator.sdfToIntensity(-0.5f, 0.1f), 0.05f)
+        assertEquals(0f, IntensityFieldGenerator.sdfToIntensity(0.5f, 0.1f), 0.05f)
     }
 
     @Test
@@ -408,3 +414,4 @@ class SubPixelRenderingTest {
         assertTrue("dying enemies should glow", lowHp.glow > fullHp.glow)
     }
 }
+
