@@ -1,0 +1,46 @@
+name: dump-sources
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dump requested sources to issue #1
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const files = [
+              'app/src/main/java/com/example/viewmodel/GameViewModel.kt',
+              'app/src/main/java/com/example/ui/components/Modals.kt'
+            ];
+            const CHUNK = 55000;
+            const fence = '````';
+            const post = async (body) => {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: 1,
+                body: body
+              });
+            };
+            for (const f of files) {
+              if (!fs.existsSync(f)) { await post('### SRC-DUMP v3 `' + f + '` MISSING'); continue; }
+              const content = fs.readFileSync(f, 'utf8');
+              const n = Math.ceil(content.length / CHUNK);
+              for (let i = 0; i < n; i++) {
+                const s = i * CHUNK;
+                const e = Math.min(s + CHUNK, content.length);
+                const body = '### SRC-DUMP v3 `' + f + '` part ' + (i + 1) + '/' + n + ' chars ' + s + '-' + e + ' of ' + content.length + '\n\n' + fence + '\n' + content.slice(s, e) + '\n' + fence;
+                await post(body);
+              }
+            }
