@@ -32,7 +32,7 @@ class AsciiGlSurfaceView @JvmOverloads constructor(
     companion object {
         const val MIN_ZOOM = 0.45f
         const val MAX_ZOOM = 3.80f
-        const val DEFAULT_ZOOM = 1.05f
+        const val DEFAULT_ZOOM = 1.25f
         const val INSPECTION_ZOOM = 2.40f
     }
 

@@ -87,7 +87,7 @@ fun HudOverlay(
                 ImmersiveSurfaceVariant,
                 RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
     ) {
         // Top Header Row: System Identity + Quick Control Actions
         Row(
@@ -103,7 +103,7 @@ fun HudOverlay(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(26.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(ImmersiveTeal)
                         .border(1.dp, PhosphorGreen, RoundedCornerShape(8.dp)),
@@ -113,7 +113,7 @@ fun HudOverlay(
                         text = "ISO",
                         color = ImmersiveBackground,
                         fontWeight = FontWeight.Black,
-                        fontSize = 11.sp,
+                        fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace
                     )
                 }
@@ -151,52 +151,31 @@ fun HudOverlay(
                         }
                     }
 
-                    Text(
-                        text = "▣ $zoneName",
-                        color = ImmersiveAccentOrange,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
-                        Faction.values().forEach { f ->
-                            val standing = (factionReps[f.id] ?: 0).coerceIn(-100, 100)
-                            val fraction = ((standing + 100) / 200f).coerceIn(0f, 1f)
-                            val barColor = when {
-                                standing > 0 -> PhosphorGreen
-                                standing < 0 -> ToxicRed
-                                else -> ImmersiveTextMuted
-                            }
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                Text(
-                                    text = f.label.split(" ").first().take(3).uppercase(),
-                                    color = ImmersiveTextMuted,
-                                    fontSize = 6.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .width(30.dp)
-                                        .height(3.dp)
-                                        .background(ImmersiveSurfaceVariant)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(fraction)
-                                            .height(3.dp)
-                                            .background(barColor)
-                                    )
-                                }
-                            }
-                        }
+                        Text(
+                            text = "▣ $zoneName",
+                            color = ImmersiveAccentOrange,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "◈ ${player.credits} CR",
+                            color = PhosphorGreen,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (audioProfile.isMuted) "MUTED" else "DSP ON",
+                            color = if (audioProfile.dangerLevel > 0.4f) ToxicRed else ImmersiveTextMuted,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
                     }
 
                     companions.forEach { cmp ->
@@ -220,29 +199,6 @@ fun HudOverlay(
                         }
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            text = "◈ ${player.credits} CR",
-                            color = PhosphorGreen,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "•",
-                            color = ImmersiveTextMuted,
-                            fontSize = 8.sp
-                        )
-                        Text(
-                            text = if (audioProfile.isMuted) "MUTED" else "DSP ON",
-                            color = if (audioProfile.dangerLevel > 0.4f) ToxicRed else ImmersiveTextMuted,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
                     if (isEncumbered) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
@@ -264,7 +220,7 @@ fun HudOverlay(
                 IconButton(
                     onClick = onToggleAudioMute,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, ImmersiveTeal.copy(alpha = 0.3f), CircleShape)
@@ -274,14 +230,14 @@ fun HudOverlay(
                         imageVector = if (audioProfile.isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
                         contentDescription = "Toggle Audio",
                         tint = if (audioProfile.isMuted) ImmersiveTextMuted else ImmersiveTeal,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onTogglePalette,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, ImmersiveTeal.copy(alpha = 0.3f), CircleShape)
@@ -291,14 +247,14 @@ fun HudOverlay(
                         imageVector = Icons.Default.ColorLens,
                         contentDescription = "Palette",
                         tint = ImmersiveTeal,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenQuests,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, ImmersiveAccentOrange.copy(alpha = 0.5f), CircleShape)
@@ -308,14 +264,14 @@ fun HudOverlay(
                         imageVector = Icons.Default.Flag,
                         contentDescription = "Quests",
                         tint = ImmersiveAccentOrange,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenSkills,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, ImmersiveTeal.copy(alpha = 0.5f), CircleShape)
@@ -325,14 +281,14 @@ fun HudOverlay(
                         imageVector = Icons.Default.Shield,
                         contentDescription = "Skills",
                         tint = ImmersiveTeal,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenSynthesis,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, ImmersiveAccentOrange.copy(alpha = 0.5f), CircleShape)
@@ -342,14 +298,14 @@ fun HudOverlay(
                         imageVector = Icons.Default.Science,
                         contentDescription = "Chem Synthesis",
                         tint = ImmersiveAccentOrange,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenInventory,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, ImmersiveTeal.copy(alpha = 0.5f), CircleShape)
@@ -359,14 +315,14 @@ fun HudOverlay(
                         imageVector = Icons.Default.Inventory,
                         contentDescription = "Inventory",
                         tint = ImmersiveTeal,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenStoryNotes,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, ImmersiveAccentOrange.copy(alpha = 0.5f), CircleShape)
@@ -376,14 +332,14 @@ fun HudOverlay(
                         imageVector = Icons.Default.Description,
                         contentDescription = "Story",
                         tint = ImmersiveAccentOrange,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenMarkdownEditor,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(ImmersiveSurfaceVariant)
                         .border(0.8.dp, AcidYellow.copy(alpha = 0.5f), CircleShape)
@@ -393,13 +349,13 @@ fun HudOverlay(
                         imageVector = Icons.Default.Code,
                         contentDescription = "MD Editor",
                         tint = AcidYellow,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // Dual Smartphone Status Gauges (HP & Toxicity)
         Row(
@@ -414,7 +370,7 @@ fun HudOverlay(
                     .clip(RoundedCornerShape(8.dp))
                     .background(ImmersiveBackground)
                     .border(0.8.dp, ImmersiveTeal.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -447,7 +403,7 @@ fun HudOverlay(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 LinearProgressIndicator(
                     progress = { (player.hp.toFloat() / player.maxHp.toFloat()).coerceIn(0f, 1f) },
                     modifier = Modifier
@@ -466,7 +422,7 @@ fun HudOverlay(
                     .clip(RoundedCornerShape(8.dp))
                     .background(ImmersiveBackground)
                     .border(0.8.dp, ToxicRed.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -499,7 +455,7 @@ fun HudOverlay(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 LinearProgressIndicator(
                     progress = { (player.toxicity.toFloat() / player.maxToxicity.toFloat()).coerceIn(0f, 1f) },
                     modifier = Modifier
@@ -512,7 +468,7 @@ fun HudOverlay(
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(3.dp))
 
         // Slim EXP Progression Bar for Mobile
         val expNeeded = if (player.level > 0) player.level * 100 else 100
@@ -525,7 +481,7 @@ fun HudOverlay(
                 .clip(RoundedCornerShape(6.dp))
                 .background(ImmersiveBackground)
                 .border(0.8.dp, AcidYellow.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {

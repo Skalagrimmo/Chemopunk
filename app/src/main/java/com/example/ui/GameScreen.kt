@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -124,7 +125,7 @@ fun GameScreen(viewModel: GameViewModel) {
                     onOpenQuests = { viewModel.openModal(ActiveModal.QUEST_LOG) },
                     onOpenSkills = { viewModel.openSkillsModal() },
                     onOpenSynthesis = { viewModel.openSynthesisModal() },
-                    zoneName = uiState.currentZoneId.replaceFirstChar { if (it.isLowerCase()) it.uppercaseChar() else it },
+                    zoneName = uiState.currentZoneId.replaceFirstChar { if (it.isLowerCase()) it.uppercase() else it },
                     factionReps = uiState.factionReps,
                     onOpenStoryNotes = { viewModel.setViewMode(ViewMode.STORY_DIALOGUE) },
                     onOpenMarkdownEditor = { viewModel.setViewMode(ViewMode.MARKDOWN_EDITOR) },
@@ -137,7 +138,7 @@ fun GameScreen(viewModel: GameViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .border(1.dp, ImmersiveSurfaceVariant, RoundedCornerShape(16.dp))
                         .background(ImmersiveBackground)
@@ -390,6 +391,7 @@ fun GameScreen(viewModel: GameViewModel) {
                         ownedItems = uiState.roomInventory,
                         playerCredits = uiState.characterProfile?.credits ?: uiState.player.credits,
                     factionReps = uiState.factionReps,
+                    companions = uiState.companions,
                         onBuy = { itemId -> viewModel.buyShopItem(itemId) },
                         onSell = { itemId -> viewModel.sellInventoryItem(itemId) },
                         onClose = { viewModel.closeModal() }

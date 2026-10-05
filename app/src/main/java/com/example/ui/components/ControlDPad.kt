@@ -80,7 +80,7 @@ fun ControlDPad(
                 ImmersiveSurfaceVariant,
                 RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -92,7 +92,7 @@ fun ControlDPad(
                     shape = RoundedCornerShape(16.dp)
                 )
                 .border(1.2.dp, ImmersiveSurfaceVariant, RoundedCornerShape(16.dp))
-                .padding(4.dp)
+                .padding(3.dp)
         ) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -156,7 +156,7 @@ fun ControlDPad(
                     // Center Primary Action Button
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(30.dp)
                             .clip(CircleShape)
                             .background(ImmersiveTeal.copy(alpha = 0.25f))
                             .border(1.5.dp, ImmersiveTeal, CircleShape)
@@ -172,7 +172,7 @@ fun ControlDPad(
                             imageVector = Icons.Default.FlashOn,
                             contentDescription = "Action",
                             tint = PhosphorGreen,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
 
@@ -234,7 +234,7 @@ fun ControlDPad(
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // 1. Primary Action Button
             Button(
@@ -245,7 +245,7 @@ fun ControlDPad(
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
-                    .height(42.dp)
+                    .height(34.dp)
                     .fillMaxWidth()
                     .border(1.dp, PhosphorGreen, RoundedCornerShape(12.dp))
                     .testTag("btn_action")
@@ -285,7 +285,7 @@ fun ControlDPad(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .height(38.dp)
+                        .height(30.dp)
                         .testTag("btn_dpad_inventory")
                 ) {
                     Row(
@@ -317,7 +317,7 @@ fun ControlDPad(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .height(38.dp)
+                        .height(30.dp)
                         .testTag("btn_wait_turn")
                 ) {
                     Row(
@@ -359,7 +359,7 @@ private fun DPadCell(
 ) {
     Box(
         modifier = Modifier
-            .size(38.dp)
+            .size(30.dp)
             .clip(shape)
             .background(if (isDiagonal) ImmersiveSurfaceVariant.copy(alpha = 0.5f) else ImmersiveSurfaceVariant)
             .border(
