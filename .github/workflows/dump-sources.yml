@@ -1,0 +1,70 @@
+name: dump-sources
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dump sources to issue #1
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            const files = [
+              'app/src/main/java/com/example/viewmodel/GameViewModel.kt',
+              'app/src/main/java/com/example/ui/components/Modals.kt'
+            ];
+            const collect = (d, acc) => {
+              if (!fs.existsSync(d)) return acc;
+              for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+                const p = d + '/' + e.name;
+                if (e.isDirectory()) collect(p, acc);
+                else if (e.name.endsWith('.kt')) acc.push(p);
+              }
+              return acc;
+            };
+            collect('app/src/test', files);
+            collect('app/src/androidTest', files);
+            const CHUNK = 55000;
+            const fence = '````';
+            const post = async (body) => {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: 1,
+                body: body
+              });
+            };
+            for (const f of files) {
+              if (!fs.existsSync(f)) { await post('### SRC-DUMP v1 `' + f + '` MISSING'); continue; }
+              const content = fs.readFileSync(f, 'utf8');
+              const n = Math.ceil(content.length / CHUNK);
+              for (let i = 0; i < n; i++) {
+                const s = i * CHUNK;
+                const e = Math.min(s + CHUNK, content.length);
+                const body = '### SRC-DUMP v1 `' + f + '` part ' + (i + 1) + '/' + n + ' chars ' + s + '-' + e + ' of ' + content.length + '\n\n' + fence + '\n' + content.slice(s, e) + '\n' + fence;
+                await post(body);
+              }
+            }
+            try {
+              const ls = execSync('git ls-tree -r HEAD', { encoding: 'utf8' });
+              const n = Math.ceil(ls.length / CHUNK);
+              for (let i = 0; i < n; i++) {
+                const s = i * CHUNK;
+                const e = Math.min(s + CHUNK, ls.length);
+                const body = '### SRC-DUMP v1 `git-ls-tree` part ' + (i + 1) + '/' + n + ' chars ' + s + '-' + e + ' of ' + ls.length + '\n\n' + fence + '\n' + ls.slice(s, e) + '\n' + fence;
+                await post(body);
+              }
+            } catch (err) {
+              await post('### SRC-DUMP v1 ls-tree failed: ' + err.message);
+            }
