@@ -13,7 +13,7 @@ ASCII-RPG у стилі Fallout 1/2: ізометрична 2.5D-графіка 
 - **Persistence:** Room (inventory + story databases)
 - **Rendering:** custom OpenGL ASCII engine (isometric, dynamic lighting, sub-pixel glyph atlas, CRT shaders)
 - **Testing:** JUnit 4 + Robolectric + Roborazzi (19 unit test classes)
-- **Extras:** Firebase AI (declared, currently unused in code), Retrofit/Moshi/OkHttp
+- **Extras:** Retrofit/Moshi/OkHttp
 
 ## Requirements
 
@@ -59,14 +59,14 @@ gradlew.bat assembleDebug
 
 Current status: **Android CI fully green** (run #14, commit 2fc0afe) — `assembleDebug` succeeds and all 115 unit tests pass; the debug APK is attached as an artifact.
 
-## Secrets & signing
+## Signing
 
-- **`google-services.json` is intentionally not required** — the `google-services` plugin is configured with `MissingGoogleServicesStrategy.WARN`, and Firebase/Gemini APIs are not used in code yet.
-- **`.env`** (from `.env.example`) feeds the Secrets Gradle Plugin. `GEMINI_API_KEY` is currently commented out because the Gemini API is not used yet.
 - **Signing** is fully environment-driven so fresh clones and CI always build:
   - Debug: uses `debug.keystore` in the repo root if present, otherwise AGP’s default auto-generated debug keystore.
   - Release: set `KEYSTORE_PATH` (default `my-upload-key.jks` in the repo root), `STORE_PASSWORD`, `KEY_PASSWORD`; if absent, the release build falls back to debug signing instead of failing.
-- Keystores, `.env` and `local.properties` are git-ignored and must never be committed.
+- Keystores and `local.properties` are git-ignored and must never be committed.
+
+> Firebase/Gemini and the Secrets Gradle Plugin were removed from the build — they were declared but never used in code.
 
 ## Project structure
 
@@ -95,7 +95,6 @@ app/src/test/                  # unit tests (Robolectric + Roborazzi)
 - [x] Green CI build of the debug APK — Android CI #14 (2fc0afe), APK artifact attached
 - [x] All unit tests passing — 115 unit tests green on CI #14
 - [ ] Playtest pass on a device (game loop, combat, inventory, audio)
-- [ ] Optional: enable Firebase AI features (needs `google-services.json` + `.env` key)
 - [ ] Release signing key + signed release APK/AAB
 
 ## License
