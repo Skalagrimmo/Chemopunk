@@ -1,0 +1,43 @@
+{
+  "format": "chemopunk-pixelgen-scene/1",
+  "name": "Smoliani Bolota",
+  "kind": "silt_marsh",
+  "seed": 4040,
+  "width": 20,
+  "height": 15,
+  "collision": [
+    "####################",
+    "wwwwwwssssssssswwwww",
+    "wsswwwssssssssswwwww",
+    "wwwwwwsssssswwwwwwww",
+    "wwwwswwwwwwwwwwwwwww",
+    "wwwwwwwwwwwwwwwwwwww",
+    "wwwwwwwwwwwwwwwwwwww",
+    "wwwwwwwwwwwwwwwwwwww",
+    "wwwwwwwwwwwhhwhhwhww",
+    "wwwwwwswwwwhhwhhhwww",
+    "wwwwwwwwwwwhhwwhhhww",
+    "wwwwwwwwwwwhhwwhhhww",
+    "wwwwwswwwwwhhhwhhhww",
+    "wwwwwwwwwwwwwwwswwww",
+    "wwwwwwwwwwwwwwwwwwww"
+  ],
+  "legend": {"s": "solid", "w": "walk", "h": "hazard"},
+  "spawn": {"x": 2, "y": 12},
+  "enemy_spawn": {"kind": "striga", "x": 10, "y": 10},
+  "interactive_objects": [
+    {"kind": "printing_press_altar", "type": "TERMINAL", "x": 7, "y": 2, "note": "courtyard focal machine-altar"},
+    {"kind": "nanolith_shrine", "type": "BEACON", "x": 12, "y": 1, "note": "sacred landmark"},
+    {"kind": "mask_cross", "type": "SWITCH", "x": 1, "y": 2, "note": "roadside warning marker"},
+    {"kind": "brazier_lit", "type": "SWITCH", "x": 4, "y": 4, "note": "iconic prop"},
+    {"kind": "warning_board", "type": "TERMINAL", "x": 6, "y": 9, "note": "iconic prop"},
+    {"kind": "biogel_barrel_leaking", "type": "LOCKER", "x": 15, "y": 13, "note": "iconic prop"}
+  ],
+  "source": {
+    "generator": "pixelgen",
+    "version": "1.0.0",
+    "profile": "techno_animist_gothic",
+    "scene_export": "Implements pixelgen-v1.0.0-stable/generated/_test_exports/scene.json",
+    "summary": {"solid": 50, "walk": 224, "hazard": 26}
+  }
+}
