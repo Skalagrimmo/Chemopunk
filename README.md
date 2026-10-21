@@ -19,26 +19,25 @@ ASCII-RPG у стилі Fallout 1/2: ізометрична 2.5D-графіка 
 
 - JDK 17+ (recommended: JDK 21)
 - Android SDK with platform **android-36** (compileSdk 36.1, minSdk 24, targetSdk 36)
-- Android Studio (recent version recommended) or a local Gradle to bootstrap the wrapper once
+- Android Studio (recent version recommended)
 
 ## Getting started
 
 ### Android Studio
 
-1. **File → Open…** and select this repository's root folder.
+1. **File → Open…** and select this repository’s root folder.
 2. Android Studio downloads the Gradle 9.3.1 distribution from `gradle/wrapper/gradle-wrapper.properties` and the required SDK components automatically.
 3. Run the `app` configuration on a device or emulator (minSdk 24 / Android 7.0+).
 
 ### Command line
 
-The Gradle wrapper scripts are committed, but the wrapper **jar** (`gradle/wrapper/gradle-wrapper.jar`) is not in the repository yet — the first green CI run commits it automatically. If it is still missing locally, bootstrap once:
+The full Gradle wrapper (scripts, properties and `gradle/wrapper/gradle-wrapper.jar`) is committed, so a fresh clone builds out of the box:
 
 ```bash
-gradle wrapper --gradle-version 9.3.1   # any local Gradle 8.14+ / 9.x works
 ./gradlew assembleDebug
 ```
 
-If `./gradlew` is not executable: `chmod +x gradlew` or run `sh ./gradlew …`.
+If `./gradlew` is not executable (files committed via web upload lose the exec bit): `chmod +x gradlew` or run `sh ./gradlew …`.
 
 Build outputs:
 
@@ -56,14 +55,16 @@ gradlew.bat assembleDebug
 
 ## CI
 
-`.github/workflows/android-ci.yml` builds the debug APK and runs the unit tests on every push/PR to `main`, uploads the APK as an artifact, and commits the generated Gradle wrapper (including `gradle-wrapper.jar`) back to the branch if it was missing. On failure, the workflow posts the build/test log tail as a comment on tracking issue #1.
+`.github/workflows/android-ci.yml` builds the debug APK and runs the unit tests on every push/PR to `main`, uploads the APK as an artifact, and self-heals the Gradle wrapper (commits it back if missing). On failure, the workflow posts the build/test log tail as a comment on tracking issue #1.
+
+Current status: **Android CI fully green** (run #14, commit 2fc0afe) — `assembleDebug` succeeds and all 115 unit tests pass; the debug APK is attached as an artifact.
 
 ## Secrets & signing
 
 - **`google-services.json` is intentionally not required** — the `google-services` plugin is configured with `MissingGoogleServicesStrategy.WARN`, and Firebase/Gemini APIs are not used in code yet.
 - **`.env`** (from `.env.example`) feeds the Secrets Gradle Plugin. `GEMINI_API_KEY` is currently commented out because the Gemini API is not used yet.
 - **Signing** is fully environment-driven so fresh clones and CI always build:
-  - Debug: uses `debug.keystore` in the repo root if present, otherwise AGP's default auto-generated debug keystore.
+  - Debug: uses `debug.keystore` in the repo root if present, otherwise AGP’s default auto-generated debug keystore.
   - Release: set `KEYSTORE_PATH` (default `my-upload-key.jks` in the repo root), `STORE_PASSWORD`, `KEY_PASSWORD`; if absent, the release build falls back to debug signing instead of failing.
 - Keystores, `.env` and `local.properties` are git-ignored and must never be committed.
 
@@ -91,8 +92,8 @@ app/src/test/                  # unit tests (Robolectric + Roborazzi)
 ## Roadmap to release
 
 - [x] Buildable repository (wrapper, signing, README, CI)
-- [ ] Green CI build of the debug APK
-- [ ] All unit tests passing
+- [x] Green CI build of the debug APK — Android CI #14 (2fc0afe), APK artifact attached
+- [x] All unit tests passing — 115 unit tests green on CI #14
 - [ ] Playtest pass on a device (game loop, combat, inventory, audio)
 - [ ] Optional: enable Firebase AI features (needs `google-services.json` + `.env` key)
 - [ ] Release signing key + signed release APK/AAB
